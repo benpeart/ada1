@@ -1,16 +1,20 @@
 #define DEBUG 1
 #define XBOX_CONTROLLER
 //#define DEBUG_XBOX_CONTROLLER
+//#define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
 #define MPU6050
 #define MPU6050_SERIAL_PLOTTER
 #include <Arduino.h>
-#include "Pins.h"
 
 #ifdef MPU6050
 #include <Adafruit_MPU6050.h>
+#include <KalmanFilter.h>
 
 Adafruit_MPU6050 mpu;
-Adafruit_Sensor *mpu_temp, *mpu_accel, *mpu_gyro;
+Adafruit_Sensor *mpu_accel, *mpu_gyro;
+KalmanFilter kalmanfilter;
+float kalmanfilter_angle;
+float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 #endif
 
 #ifdef XBOX_CONTROLLER
@@ -284,7 +288,7 @@ void setup()
 #endif
 
 #ifdef MPU6050
-  Serial.println("Adafruit MPU6050 test!");
+  Serial.println("MPU6050 test!");
 
   if (!mpu.begin())
   {
@@ -295,15 +299,23 @@ void setup()
     }
   }
 
+#ifdef DEBUG
   Serial.println("MPU6050 Found!");
-  mpu_temp = mpu.getTemperatureSensor();
-  mpu_temp->printSensorDetails();
+#endif
+
+#if 0
+  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+#endif  
 
   mpu_accel = mpu.getAccelerometerSensor();
   mpu_accel->printSensorDetails();
 
   mpu_gyro = mpu.getGyroSensor();
   mpu_gyro->printSensorDetails();
+
+  delay(100);
 #endif
 
 #ifdef XBOX_CONTROLLER
@@ -327,13 +339,12 @@ void loop()
 {
 #ifdef MPU6050
   /* Get a new normalized sensor event */
-  sensors_event_t accel;
-  sensors_event_t gyro;
-  sensors_event_t temp;
-  mpu_temp->getEvent(&temp);
-  mpu_accel->getEvent(&accel);
-  mpu_gyro->getEvent(&gyro);
+  sensors_event_t accel, gyro, temp;
+  mpu.getEvent(&accel, &gyro, &temp);
 
+  kalmanfilter.Angle(accel.acceleration.x, accel.acceleration.y, accel.acceleration.z, gyro.gyro.x, gyro.gyro.y, gyro.gyro.z, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
+  kalmanfilter_angle = kalmanfilter.angle;
+  
 #ifndef MPU6050_SERIAL_PLOTTER
   Serial.print("\t\tTemperature ");
   Serial.print(temp.temperature);
@@ -361,31 +372,31 @@ void loop()
   delay(100);
 #else
   // serial plotter friendly format
-  Serial.print("temp:");
-  Serial.print(temp.temperature);
+  Serial.print("angle:");
+  Serial.print(kalmanfilter.angle);
   Serial.print(",");
 
   Serial.print("accel.x:");
   Serial.print(accel.acceleration.x);
-  Serial.print(","); 
+  Serial.print(",");
   Serial.print("accel.y:");
   Serial.print(accel.acceleration.y);
-  Serial.print(","); 
+  Serial.print(",");
   Serial.print("accel.z:");
   Serial.print(accel.acceleration.z);
   Serial.print(",");
 
   Serial.print("gyro.x:");
   Serial.print(gyro.gyro.x);
-  Serial.print(","); 
+  Serial.print(",");
   Serial.print("gyro.x:");
   Serial.print(gyro.gyro.y);
-  Serial.print(","); 
+  Serial.print(",");
   Serial.print("gyro.x:");
   Serial.print(gyro.gyro.z);
   Serial.println();
   delay(10);
-#endif  
+#endif
 #endif
 
 #ifdef XBOX_CONTROLLER
