@@ -1,21 +1,11 @@
 #define DEBUG 1
 #define XBOX_CONTROLLER
-//#define DEBUG_XBOX_CONTROLLER
-//#define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
-#define MPU6050
-#define MPU6050_SERIAL_PLOTTER
+// #define DEBUG_XBOX_CONTROLLER
+// #define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
+#define BALANCE_CAR_DRIVER
+
+
 #include <Arduino.h>
-
-#ifdef MPU6050
-#include <Adafruit_MPU6050.h>
-#include <KalmanFilter.h>
-
-Adafruit_MPU6050 mpu;
-Adafruit_Sensor *mpu_accel, *mpu_gyro;
-KalmanFilter kalmanfilter;
-float kalmanfilter_angle;
-float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
-#endif
 
 #ifdef XBOX_CONTROLLER
 #include <XboxSeriesXControllerESP32_asukiaaa.hpp>
@@ -25,6 +15,12 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 
 // bind to any xbox controller
 // XboxSeriesXControllerESP32_asukiaaa::Core xboxController;
+#endif
+
+#ifdef BALANCE_CAR_DRIVER
+#include "BalanceDriveController.h"
+
+BalanceDriveController balanceController;
 #endif
 
 #ifdef BALANCE_CAR
@@ -287,37 +283,6 @@ void setup()
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
 #endif
 
-#ifdef MPU6050
-  Serial.println("MPU6050 test!");
-
-  if (!mpu.begin())
-  {
-    Serial.println("Failed to find MPU6050 chip");
-    while (1)
-    {
-      delay(10);
-    }
-  }
-
-#ifdef DEBUG
-  Serial.println("MPU6050 Found!");
-#endif
-
-#if 0
-  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
-  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-#endif  
-
-  mpu_accel = mpu.getAccelerometerSensor();
-  mpu_accel->printSensorDetails();
-
-  mpu_gyro = mpu.getGyroSensor();
-  mpu_gyro->printSensorDetails();
-
-  delay(100);
-#endif
-
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
   Serial.println("Starting NimBLE Client");
@@ -329,6 +294,10 @@ void setup()
   voltageInit(); // Check that the voltage of the battery is high enough
 #endif
 
+#ifdef BALANCE_CAR_DRIVER
+  balanceController.Setup();
+#endif
+
 #ifdef BALANCE_CAR
   start_prev_time = millis();
   carInitialize();
@@ -337,68 +306,6 @@ void setup()
 
 void loop()
 {
-#ifdef MPU6050
-  /* Get a new normalized sensor event */
-  sensors_event_t accel, gyro, temp;
-  mpu.getEvent(&accel, &gyro, &temp);
-
-  kalmanfilter.Angle(accel.acceleration.x, accel.acceleration.y, accel.acceleration.z, gyro.gyro.x, gyro.gyro.y, gyro.gyro.z, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
-  kalmanfilter_angle = kalmanfilter.angle;
-  
-#ifndef MPU6050_SERIAL_PLOTTER
-  Serial.print("\t\tTemperature ");
-  Serial.print(temp.temperature);
-  Serial.println(" deg C");
-
-  /* Display the results (acceleration is measured in m/s^2) */
-  Serial.print("\t\tAccel X: ");
-  Serial.print(accel.acceleration.x);
-  Serial.print(" \tY: ");
-  Serial.print(accel.acceleration.y);
-  Serial.print(" \tZ: ");
-  Serial.print(accel.acceleration.z);
-  Serial.println(" m/s^2 ");
-
-  /* Display the results (rotation is measured in rad/s) */
-  Serial.print("\t\tGyro X: ");
-  Serial.print(gyro.gyro.x);
-  Serial.print(" \tY: ");
-  Serial.print(gyro.gyro.y);
-  Serial.print(" \tZ: ");
-  Serial.print(gyro.gyro.z);
-  Serial.println(" radians/s ");
-  Serial.println();
-
-  delay(100);
-#else
-  // serial plotter friendly format
-  Serial.print("angle:");
-  Serial.print(kalmanfilter.angle);
-  Serial.print(",");
-
-  Serial.print("accel.x:");
-  Serial.print(accel.acceleration.x);
-  Serial.print(",");
-  Serial.print("accel.y:");
-  Serial.print(accel.acceleration.y);
-  Serial.print(",");
-  Serial.print("accel.z:");
-  Serial.print(accel.acceleration.z);
-  Serial.print(",");
-
-  Serial.print("gyro.x:");
-  Serial.print(gyro.gyro.x);
-  Serial.print(",");
-  Serial.print("gyro.x:");
-  Serial.print(gyro.gyro.y);
-  Serial.print(",");
-  Serial.print("gyro.x:");
-  Serial.print(gyro.gyro.z);
-  Serial.println();
-  delay(10);
-#endif
-#endif
-
 #ifdef XBOX_CONTROLLER
   xboxController.onLoop();
   if (xboxController.isConnected())
@@ -437,6 +344,10 @@ void loop()
       ESP.restart();
     }
   }
+#endif
+
+#ifdef BALANCE_CAR_DRIVER
+  balanceController.Loop();
 #endif
 
 #ifdef BALANCE_CAR
