@@ -38,11 +38,15 @@ BalanceDriveController::~BalanceDriveController()
 void BalanceDriveController::Setup()
 {
 #ifdef MPU6050
+#ifdef DEBUG
     Serial.println("MPU6050 test!");
+#endif
 
     if (!mpu.begin())
     {
+#ifdef DEBUG
         Serial.println("Failed to find MPU6050 chip");
+#endif
         while (1)
         {
             delay(10);
@@ -60,10 +64,11 @@ void BalanceDriveController::Setup()
 #endif
 
     mpu_accel = mpu.getAccelerometerSensor();
-    mpu_accel->printSensorDetails();
-
     mpu_gyro = mpu.getGyroSensor();
+#ifdef DEBUG
+    mpu_accel->printSensorDetails();
     mpu_gyro->printSensorDetails();
+#endif
 
     delay(100);
 #endif

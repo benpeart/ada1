@@ -1,9 +1,9 @@
 #define DEBUG 1
 #define XBOX_CONTROLLER
 // #define DEBUG_XBOX_CONTROLLER
+// #define XBOX_SERIAL_PLOTTER
 // #define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
-#define BALANCE_CAR_DRIVER
-
+#define BALANCE_DRIVE_CONTROLLER
 
 #include <Arduino.h>
 
@@ -17,25 +17,22 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 // XboxSeriesXControllerESP32_asukiaaa::Core xboxController;
 #endif
 
-#ifdef BALANCE_CAR_DRIVER
+#ifdef BALANCE_DRIVE_CONTROLLER
 #include "BalanceDriveController.h"
 
 BalanceDriveController balanceController;
 #endif
 
-#ifdef BALANCE_CAR
-#include "BalanceCar.h"
-#endif
 #ifdef CHECK_VOLTAGE
 #include "voltage.h"
 #endif
 
 #ifdef BALANCE_CAR
+#include "BalanceCar.h"
+
 unsigned long start_prev_time = 0;
 boolean carInitialize_en = true;
-#endif
 
-#ifdef BALANCE_CAR
 void setMotionState()
 {
   switch (motion_mode)
@@ -277,11 +274,9 @@ void keyEventHandle()
 
 void setup()
 {
-#ifdef DEBUG
   Serial.begin(115200);
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
-#endif
 
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
@@ -294,7 +289,7 @@ void setup()
   voltageInit(); // Check that the voltage of the battery is high enough
 #endif
 
-#ifdef BALANCE_CAR_DRIVER
+#ifdef BALANCE_DRIVE_CONTROLLER
   balanceController.Setup();
 #endif
 
@@ -319,19 +314,24 @@ void loop()
     else
     {
 #ifdef DEBUG_XBOX_CONTROLLER
-      Serial.println("Address: " + xboxController.buildDeviceAddressStr());
-      Serial.print(xboxController.xboxNotif.toString());
+      static int first = 1;
+      if (first)
+      {
+        first = 0;
+        Serial.println("Address: " + xboxController.buildDeviceAddressStr());
+        Serial.print(xboxController.xboxNotif.toString());
+      }
 #endif
       unsigned long receivedAt = xboxController.getReceiveNotificationAt();
       uint16_t joystickMax = XboxControllerNotificationParser::maxJoy;
-#ifdef DEBUG_XBOX_CONTROLLER
-      Serial.print("joyLHori rate: ");
-      Serial.println((float)xboxController.xboxNotif.joyLHori / joystickMax);
-      Serial.print("joyLVert rate: ");
-      Serial.println((float)xboxController.xboxNotif.joyLVert / joystickMax);
-      Serial.println("battery " + String(xboxController.battery) + "%");
-      Serial.println("received at " + String(receivedAt));
-#endif
+#ifdef XBOX_SERIAL_PLOTTER
+      Serial.print("joyLHori:");
+      Serial.print((float)xboxController.xboxNotif.joyLHori / joystickMax);
+      Serial.print(",");
+      Serial.print("joyLVert:");
+      Serial.print((float)xboxController.xboxNotif.joyLVert / joystickMax);
+      Serial.println();
+#endif // XBOX_SERIAL_PLOTTER
     }
   }
   else
@@ -346,7 +346,7 @@ void loop()
   }
 #endif
 
-#ifdef BALANCE_CAR_DRIVER
+#ifdef BALANCE_DRIVE_CONTROLLER
   balanceController.Loop();
 #endif
 
