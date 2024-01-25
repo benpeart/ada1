@@ -16,7 +16,6 @@
 class BalanceDriveController
 {
 private:
-    Adafruit_MPU6050 mpu;
     Adafruit_Sensor *mpu_accel, *mpu_gyro;
     KalmanFilter kalmanfilter;
     float kalmanfilter_angle;
@@ -29,6 +28,8 @@ private:
 #endif
 
 public:
+    Adafruit_MPU6050 mpu;
+
     BalanceDriveController();
     ~BalanceDriveController();
     void Setup();

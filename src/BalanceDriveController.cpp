@@ -57,10 +57,10 @@ void BalanceDriveController::Setup()
     Serial.println("MPU6050 Found!");
 #endif
 
-#if 0
-  mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
-  mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+#if 1
+    mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
+    mpu.setGyroRange(MPU6050_RANGE_250_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 #endif
 
     mpu_accel = mpu.getAccelerometerSensor();
@@ -71,6 +71,21 @@ void BalanceDriveController::Setup()
 #endif
 
     delay(100);
+#endif // MPU6050
+#if 0
+    // connect the rotary encoders functions
+    hw_timer_t * timer = NULL;
+
+    void IRAM_ATTR onTimer() {
+    // Your interrupt handling code here
+    }
+
+    void setup() {
+    timer = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+    timerAlarmWrite(timer, 1000000, true);
+    timerAlarmEnable(timer);
+    }
 #endif
 }
 
@@ -103,10 +118,10 @@ void BalanceDriveController::Loop()
     Serial.print("gyro.x:");
     Serial.print(gyro.gyro.x);
     Serial.print(",");
-    Serial.print("gyro.x:");
+    Serial.print("gyro.y:");
     Serial.print(gyro.gyro.y);
     Serial.print(",");
-    Serial.print("gyro.x:");
+    Serial.print("gyro.z:");
     Serial.print(gyro.gyro.z);
     Serial.println();
 #endif

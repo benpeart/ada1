@@ -19,6 +19,7 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 
 #ifdef BALANCE_DRIVE_CONTROLLER
 #include "BalanceDriveController.h"
+#include "WebServer.h"
 
 BalanceDriveController balanceController;
 #endif
@@ -291,6 +292,7 @@ void setup()
 
 #ifdef BALANCE_DRIVE_CONTROLLER
   balanceController.Setup();
+  webserver_setup();
 #endif
 
 #ifdef BALANCE_CAR
@@ -348,8 +350,9 @@ void loop()
 
 #ifdef BALANCE_DRIVE_CONTROLLER
   balanceController.Loop();
+  webserver_loop(balanceController.mpu);
 #endif
-
+  
 #ifdef BALANCE_CAR
   keyEventHandle();
 #endif
