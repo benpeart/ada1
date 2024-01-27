@@ -1,130 +1,197 @@
-#include "BalanceDriveController.h"
+// Toggle various compile time features of the Balance Drive Controller
+#define DEBUG 1
+#define MPU6050
+// #define MOTOR_DRIVER
+// #define MOTOR_SERIAL_PLOTTER
+// #define WEB_SERVER
 
-#define DEBUG
+#include "BalanceDriveController.h"
+#include "pins.h"
+#include "debug.h"
+
+#ifdef MPU6050
+#include "KalmanFilter.h"
+#include "I2Cdev.h"
+#include <MPU6050.h>
+#include "Wire.h"
+#endif // MPU6050
 
 #ifdef MOTOR_DRIVER
-
-// Pins for all motor input and outputs
-#define AIN1 14
-#define AIN2 12
-#define PWMA 13
-#define BIN1 26
-#define BIN2 25
-#define PWMB 33
-#define STBY 27
-
-#if 0 // alternate pins that should work if issues with above
-// Pins for all inputs, keep in mind the PWM defines must be on PWM pins
-// the default pins listed are the ones used on the Redbot (ROB-12097) with
-// the exception of STBY which the Redbot controls with a physical switch
-#define AIN1 2
-#define BIN1 7
-#define AIN2 4
-#define BIN2 8
-#define PWMA T0
-#define PWMB T2
-#define STBY 9
-#endif
+#include <TB6612FNG.h>
 #endif // MOTOR_DRIVER
 
-BalanceDriveController::BalanceDriveController() : motorLeft(STBY, AIN1, AIN2, PWMA), motorRight(STBY, BIN1, BIN2, PWMB)
+#ifdef WEB_SERVER
+#include "WebServer.h"
+#endif
+
+#ifdef MPU6050
+MPU6050_Base mpu;
+KalmanFilter kalmanfilter;
+#endif
+
+// Kalman Filter parameters
+constexpr static float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+
+// PID parameters
+constexpr static double kp_balance = 55, kd_balance = 0.75;
+constexpr static double kp_speed = 10, ki_speed = 0.26;
+constexpr static double kp_turn = 2.5, kd_turn = 0.5;
+
+// MPU6050 calibration parameters (unused)
+constexpr static double angle_zero = 0;            // x axle angle calibration
+constexpr static double angular_velocity_zero = 0; // x axle angular velocity calibration
+
+// Rotary encoder state
+volatile unsigned long encoder_count_right_a = 0;
+volatile unsigned long encoder_count_left_a = 0;
+int encoder_left_pulse_num_speed = 0;
+int encoder_right_pulse_num_speed = 0;
+
+// Speed tracking state
+double speed_control_output = 0;
+double rotation_control_output = 0;
+double speed_filter = 0;
+int speed_control_period_count = 0;
+double car_speed_integeral = 0;
+double speed_filter_old = 0;
+int setting_car_speed = 0;
+int setting_turn_speed = 0;
+double pwm_left = 0;
+double pwm_right = 0;
+// constexpr static char balance_angle_min = -27;
+// constexpr static char balance_angle_max = 27;
+constexpr static char balance_angle_min = -22;
+constexpr static char balance_angle_max = 22;
+
+#ifdef MOTOR_DRIVER
+Tb6612fng motorLeft(STBY, AIN1, AIN2, PWMA);
+Tb6612fng motorRight(STBY, BIN1, BIN2, PWMB);
+//  Tb6612fng motor(STBY, AIN2, AIN1, PWMA); // Reversed forward motor direction.
+#endif
+
+void IRAM_ATTR encoderCountRightA()
 {
+    encoder_count_right_a++;
 }
 
-BalanceDriveController::~BalanceDriveController()
+void IRAM_ATTR encoderCountLeftA()
 {
+    encoder_count_left_a++;
 }
 
-void BalanceDriveController::Setup()
+void BalanceCar()
 {
 #ifdef MPU6050
-#ifdef DEBUG
-    Serial.println("MPU6050 test!");
-#endif
+    int16_t ax, ay, az, gx, gy, gz;
+    float kalmanfilter_angle;
 
-    if (!mpu.begin())
+    encoder_left_pulse_num_speed += pwm_left < 0 ? -encoder_count_left_a : encoder_count_left_a;
+    encoder_right_pulse_num_speed += pwm_right < 0 ? -encoder_count_right_a : encoder_count_right_a;
+    encoder_count_left_a = 0;
+    encoder_count_right_a = 0;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
+    kalmanfilter_angle = kalmanfilter.angle;
+    double balance_control_output = kp_balance * (kalmanfilter_angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
+    speed_control_period_count++;
+    if (speed_control_period_count >= 8)
     {
-#ifdef DEBUG
-        Serial.println("Failed to find MPU6050 chip");
+        speed_control_period_count = 0;
+        double car_speed = (encoder_left_pulse_num_speed + encoder_right_pulse_num_speed) * 0.5;
+        encoder_left_pulse_num_speed = 0;
+        encoder_right_pulse_num_speed = 0;
+        speed_filter = speed_filter_old * 0.7 + car_speed * 0.3;
+        speed_filter_old = speed_filter;
+        car_speed_integeral += speed_filter;
+        car_speed_integeral += -setting_car_speed;
+        car_speed_integeral = constrain(car_speed_integeral, -3000, 3000);
+        speed_control_output = -kp_speed * speed_filter - ki_speed * car_speed_integeral;
+        rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
+    }
+
+    pwm_left = balance_control_output - speed_control_output - rotation_control_output;
+    pwm_right = balance_control_output - speed_control_output + rotation_control_output;
+
+    pwm_left = constrain(pwm_left, -255, 255);
+    pwm_right = constrain(pwm_right, -255, 255);
+#ifdef MOTOR_SERIAL_PLOTTER
+    // serial plotter friendly format
+    DB_PRINT("angle:");
+    DB_PRINT(kalmanfilter.angle);
+    DB_PRINT(",");
+    DB_PRINT("balance:");
+    DB_PRINT(balance_control_output);
+    DB_PRINT(",");
+    DB_PRINT("pwm_left:");
+    DB_PRINT(pwm_left);
+    DB_PRINT(",");
+    DB_PRINT("pwm_right:");
+    DB_PRINT(pwm_right);
+#if 0
+    DB_PRINT(",");
+    DB_PRINT("accel.x:");
+    DB_PRINT(ax);
+    DB_PRINT(",");
+    DB_PRINT("accel.y:");
+    DB_PRINT(ay);
+    DB_PRINT(",");
+    DB_PRINT("accel.z:");
+    DB_PRINT(az);
+    DB_PRINT(",");
+
+    DB_PRINT("gyro.x:");
+    DB_PRINT(gx);
+    DB_PRINT(",");
+    DB_PRINT("gyro.y:");
+    DB_PRINT(gy);
+    DB_PRINT(",");
+    DB_PRINT("gyro.z:");
+    DB_PRINT(gz);
 #endif
+    DB_PRINTLN();
+    delay(5);
+#endif // MOTOR_SERIAL_PLOTTER
+#endif // MPU6050
+}
+
+void BalanceDriveController_Setup()
+{
+#ifdef MPU6050
+    Wire.begin();
+    mpu.initialize();
+    if (!mpu.testConnection())
+    {
+        DB_PRINTLN("Failed to find MPU6050 chip");
         while (1)
         {
             delay(10);
         }
     }
 
-#ifdef DEBUG
-    Serial.println("MPU6050 Found!");
-#endif
-
-#if 1
-    mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
-    mpu.setGyroRange(MPU6050_RANGE_250_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-#endif
-
-    mpu_accel = mpu.getAccelerometerSensor();
-    mpu_gyro = mpu.getGyroSensor();
-#ifdef DEBUG
-    mpu_accel->printSensorDetails();
-    mpu_gyro->printSensorDetails();
-#endif
+    DB_PRINTLN("MPU6050 Found!");
 
     delay(100);
 #endif // MPU6050
-#if 0
-    // connect the rotary encoders functions
-    hw_timer_t * timer = NULL;
 
-    void IRAM_ATTR onTimer() {
-    // Your interrupt handling code here
-    }
-
-    void setup() {
-    timer = timerBegin(0, 80, true);
-    timerAttachInterrupt(timer, &onTimer, true);
-    timerAlarmWrite(timer, 1000000, true);
-    timerAlarmEnable(timer);
-    }
-#endif
+    // attach the rotary encoder counters
+    attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
 }
 
-void BalanceDriveController::Loop()
+void BalanceDriveController_Loop()
 {
-#ifdef MPU6050
-    /* Get a new normalized sensor event */
-    sensors_event_t accel, gyro, temp;
-    mpu.getEvent(&accel, &gyro, &temp);
+    static unsigned long lastTime = 0;
+    unsigned long currentTime = millis();
 
-    kalmanfilter.Angle(accel.acceleration.x, accel.acceleration.y, accel.acceleration.z, gyro.gyro.x, gyro.gyro.y, gyro.gyro.z, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
-    kalmanfilter_angle = kalmanfilter.angle;
+    // only run every 5ms
+    if ((currentTime - lastTime) < 5)
+    {
+        return;
+    }
+    lastTime = currentTime;
 
-#ifdef DEBUG
-    // serial plotter friendly format
-    Serial.print("angle:");
-    Serial.print(kalmanfilter.angle);
-    Serial.print(",");
-
-    Serial.print("accel.x:");
-    Serial.print(accel.acceleration.x);
-    Serial.print(",");
-    Serial.print("accel.y:");
-    Serial.print(accel.acceleration.y);
-    Serial.print(",");
-    Serial.print("accel.z:");
-    Serial.print(accel.acceleration.z);
-    Serial.print(",");
-
-    Serial.print("gyro.x:");
-    Serial.print(gyro.gyro.x);
-    Serial.print(",");
-    Serial.print("gyro.y:");
-    Serial.print(gyro.gyro.y);
-    Serial.print(",");
-    Serial.print("gyro.z:");
-    Serial.print(gyro.gyro.z);
-    Serial.println();
-#endif
-    delay(10);
+    BalanceCar();
+#ifdef WEB_SERVER
+    webserver_loop(mpu);
 #endif
 }

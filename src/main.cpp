@@ -1,4 +1,4 @@
-#define DEBUG 1
+//#define DEBUG 1
 #define XBOX_CONTROLLER
 // #define DEBUG_XBOX_CONTROLLER
 // #define XBOX_SERIAL_PLOTTER
@@ -6,6 +6,7 @@
 #define BALANCE_DRIVE_CONTROLLER
 
 #include <Arduino.h>
+#include "debug.h"
 
 #ifdef XBOX_CONTROLLER
 #include <XboxSeriesXControllerESP32_asukiaaa.hpp>
@@ -19,9 +20,6 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 
 #ifdef BALANCE_DRIVE_CONTROLLER
 #include "BalanceDriveController.h"
-#include "WebServer.h"
-
-BalanceDriveController balanceController;
 #endif
 
 #ifdef CHECK_VOLTAGE
@@ -281,7 +279,7 @@ void setup()
 
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
-  Serial.println("Starting NimBLE Client");
+  DB_PRINTLN("Starting NimBLE Client");
 #endif
   xboxController.begin();
 #endif
@@ -291,8 +289,7 @@ void setup()
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
-  balanceController.Setup();
-  webserver_setup();
+  BalanceDriveController_Setup();
 #endif
 
 #ifdef BALANCE_CAR
@@ -310,7 +307,7 @@ void loop()
     if (xboxController.isWaitingForFirstNotification())
     {
 #ifdef DEBUG_XBOX_CONTROLLER
-      Serial.println("waiting for first notification");
+      DB_PRINTLN("waiting for first notification");
 #endif
     }
     else
@@ -320,26 +317,26 @@ void loop()
       if (first)
       {
         first = 0;
-        Serial.println("Address: " + xboxController.buildDeviceAddressStr());
-        Serial.print(xboxController.xboxNotif.toString());
+        DB_PRINTLN("Address: " + xboxController.buildDeviceAddressStr());
+        DB_PRINT(xboxController.xboxNotif.toString());
       }
 #endif
       unsigned long receivedAt = xboxController.getReceiveNotificationAt();
-      uint16_t joystickMax = XboxControllerNotificationParser::maxJoy;
 #ifdef XBOX_SERIAL_PLOTTER
-      Serial.print("joyLHori:");
-      Serial.print((float)xboxController.xboxNotif.joyLHori / joystickMax);
-      Serial.print(",");
-      Serial.print("joyLVert:");
-      Serial.print((float)xboxController.xboxNotif.joyLVert / joystickMax);
-      Serial.println();
+      uint16_t joystickMax = XboxControllerNotificationParser::maxJoy;
+      DB_PRINT("joyLHori:");
+      DB_PRINT((float)xboxController.xboxNotif.joyLHori / joystickMax);
+      DB_PRINT(",");
+      DB_PRINT("joyLVert:");
+      DB_PRINT((float)xboxController.xboxNotif.joyLVert / joystickMax);
+      DB_PRINTLN();
 #endif // XBOX_SERIAL_PLOTTER
     }
   }
   else
   {
 #ifdef DEBUG_XBOX_CONTROLLER
-    Serial.println("not connected");
+    DB_PRINTLN("not connected");
 #endif
     if (xboxController.getCountFailedConnection() > 2)
     {
@@ -349,8 +346,7 @@ void loop()
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
-  balanceController.Loop();
-  webserver_loop(balanceController.mpu);
+  BalanceDriveController_Loop();
 #endif
   
 #ifdef BALANCE_CAR
@@ -369,7 +365,7 @@ void loop()
   if (millis() - print_time > 100)
   {
     print_time = millis();
-    Serial.println(kalmanfilter.angle);
+    DB_PRINTLN(kalmanfilter.angle);
   }
 #endif
 

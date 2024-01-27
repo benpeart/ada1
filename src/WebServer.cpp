@@ -13,11 +13,11 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+#include <MPU6050.h>
 #include <Arduino_JSON.h>
-#include "SPIFFS.h"
+#include <SPIFFS.h>
 #include "WebServer.h"
+#include "debug.h"
 
 // Replace with your network credentials
 const char *ssid = "IOT";
@@ -40,24 +40,17 @@ unsigned long gyroDelay = 10;
 unsigned long temperatureDelay = 1000;
 unsigned long accelerometerDelay = 200;
 
-sensors_event_t a, g, temp;
-
 float gyroX, gyroY, gyroZ;
 float accX, accY, accZ;
 float temperature;
-
-// Gyroscope sensor deviation
-float gyroXerror = 0.07;
-float gyroYerror = 0.03;
-float gyroZerror = 0.01;
 
 void initSPIFFS()
 {
   if (!SPIFFS.begin())
   {
-    Serial.println("An error has occurred while mounting SPIFFS");
+    DB_PRINTLN("An error has occurred while mounting SPIFFS");
   }
-  Serial.println("SPIFFS mounted successfully");
+  DB_PRINTLN("SPIFFS mounted successfully");
 }
 
 // Initialize WiFi
@@ -65,54 +58,42 @@ void initWiFi()
 {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  Serial.println("");
-  Serial.print("Connecting to WiFi...");
+  DB_PRINTLN("");
+  DB_PRINT("Connecting to WiFi...");
   while (WiFi.status() != WL_CONNECTED)
   {
-    Serial.print(".");
+    DB_PRINT(".");
     delay(1000);
   }
-  Serial.println("");
-  Serial.println(WiFi.localIP());
+  DB_PRINTLN("");
+  DB_PRINTLN(WiFi.localIP());
 }
 
-String getGyroReadings(Adafruit_MPU6050 &mpu)
+String getGyroReadings(MPU6050 &mpu)
 {
-  mpu.getEvent(&a, &g, &temp);
+  int16_t gx, gy, gz;
+  mpu.getRotation(&gx, &gy, &gz);
 
-  float gyroX_temp = g.gyro.x;
-  if (abs(gyroX_temp) > gyroXerror)
-  {
-    gyroX += gyroX_temp / 50.00;
-  }
-
-  float gyroY_temp = g.gyro.y;
-  if (abs(gyroY_temp) > gyroYerror)
-  {
-    gyroY += gyroY_temp / 70.00;
-  }
-
-  float gyroZ_temp = g.gyro.z;
-  if (abs(gyroZ_temp) > gyroZerror)
-  {
-    gyroZ += gyroZ_temp / 90.00;
-  }
-
+  // For a 250deg/s range we have to divide first the raw value by 131.0, according to the datasheet
+  gyroX = gx / 131.0;
+  gyroY = gy / 131.0;
+  gyroZ = gz / 131.0;
   readings["gyroX"] = String(gyroX);
   readings["gyroY"] = String(gyroY);
   readings["gyroZ"] = String(gyroZ);
-
   String jsonString = JSON.stringify(readings);
   return jsonString;
 }
 
-String getAccReadings(Adafruit_MPU6050 &mpu)
+String getAccReadings(MPU6050 &mpu)
 {
-  mpu.getEvent(&a, &g, &temp);
-  // Get current acceleration values
-  accX = a.acceleration.x;
-  accY = a.acceleration.y;
-  accZ = a.acceleration.z;
+  int16_t ax, ay, az;
+  mpu.getAcceleration(&ax, &ay, &az);
+
+  // For a range of +-2g, we need to divide the raw values by 16384, according to the datasheet
+  accX = ax / 16384.0;
+  accY = ay / 16384.0;
+  accZ = az / 16384.0;
   readings["accX"] = String(accX);
   readings["accY"] = String(accY);
   readings["accZ"] = String(accZ);
@@ -120,10 +101,9 @@ String getAccReadings(Adafruit_MPU6050 &mpu)
   return accString;
 }
 
-String getTemperature(Adafruit_MPU6050 &mpu)
+String getTemperature(MPU6050 &mpu)
 {
-  mpu.getEvent(&a, &g, &temp);
-  temperature = temp.temperature;
+  temperature = mpu.getTemperature();
   return String(temperature);
 }
 
@@ -164,7 +144,7 @@ void webserver_setup()
   events.onConnect([](AsyncEventSourceClient *client)
                    {
     if(client->lastId()){
-      Serial.printf("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
+      DB_PRINTF("Client reconnected! Last message ID that it got is: %u\n", client->lastId());
     }
     // send event with message "hello!", id current millis
     // and set reconnect delay to 1 second
@@ -174,7 +154,7 @@ void webserver_setup()
   server.begin();
 }
 
-void webserver_loop(Adafruit_MPU6050 &mpu)
+void webserver_loop(MPU6050_Base &mpu)
 {
   if ((millis() - lastTime) > gyroDelay)
   {
