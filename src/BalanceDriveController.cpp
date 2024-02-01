@@ -1,8 +1,8 @@
 // Toggle various compile time features of the Balance Drive Controller
 #define DEBUG 1
 #define MPU6050
-// #define MOTOR_DRIVER
-// #define MOTOR_SERIAL_PLOTTER
+#define MOTOR_DRIVER
+#define MOTOR_SERIAL_PLOTTER
 // #define WEB_SERVER
 
 #include "BalanceDriveController.h"
@@ -27,7 +27,6 @@
 #ifdef MPU6050
 MPU6050_Base mpu;
 KalmanFilter kalmanfilter;
-#endif
 
 // Kalman Filter parameters
 constexpr static float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
@@ -40,6 +39,7 @@ constexpr static double kp_turn = 2.5, kd_turn = 0.5;
 // MPU6050 calibration parameters (unused)
 constexpr static double angle_zero = 0;            // x axle angle calibration
 constexpr static double angular_velocity_zero = 0; // x axle angular velocity calibration
+#endif
 
 // Rotary encoder state
 volatile unsigned long encoder_count_right_a = 0;
@@ -64,9 +64,10 @@ constexpr static char balance_angle_min = -22;
 constexpr static char balance_angle_max = 22;
 
 #ifdef MOTOR_DRIVER
-Tb6612fng motorLeft(STBY, AIN1, AIN2, PWMA);
-Tb6612fng motorRight(STBY, BIN1, BIN2, PWMB);
-//  Tb6612fng motor(STBY, AIN2, AIN1, PWMA); // Reversed forward motor direction.
+// Reverse AIN1/AIN2 and BIN1/BIN2 to reverse the direction of the motors
+// Tb6612fng motors(STBY, AIN1_RIGHT, AIN2_RIGHT, PWMA_RIGHT, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
+Tb6612fng motorRight(STBY, AIN1_RIGHT, AIN2_RIGHT, PWMA_RIGHT);
+Tb6612fng motorLeft(STBY, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
 #endif
 
 void IRAM_ATTR encoderCountRightA()
@@ -114,8 +115,30 @@ void BalanceCar()
 
     pwm_left = constrain(pwm_left, -255, 255);
     pwm_right = constrain(pwm_right, -255, 255);
+
+#ifdef MOTOR_DRIVER
+    // not transitioning modes, just balancing/moving
+    // motors.drive(pwm_left / 255.0, pwm_right / 255.0, 0, false);
+    motorLeft.drive(pwm_left / 255.0);
+    motorRight.drive(pwm_right / 255.0);
+#endif    
+
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
+    SerialPlotterOutput = true;
+    DB_PRINT("motorLeft:");
+    DB_PRINT(pwm_left / 255.0);
+    DB_PRINT(",");
+    DB_PRINT("motorRight:");
+    DB_PRINT(pwm_right / 255.0);
+    DB_PRINT(",");
+    DB_PRINT("encoderCountLeft:");
+    DB_PRINT(encoder_count_left_a);
+    DB_PRINT(",");
+    DB_PRINT("encoderCountRight:");
+    DB_PRINT(encoder_count_right_a);
+    DB_PRINT(",");
+#if 0
     DB_PRINT("angle:");
     DB_PRINT(kalmanfilter.angle);
     DB_PRINT(",");
@@ -127,7 +150,6 @@ void BalanceCar()
     DB_PRINT(",");
     DB_PRINT("pwm_right:");
     DB_PRINT(pwm_right);
-#if 0
     DB_PRINT(",");
     DB_PRINT("accel.x:");
     DB_PRINT(ax);
@@ -148,9 +170,8 @@ void BalanceCar()
     DB_PRINT("gyro.z:");
     DB_PRINT(gz);
 #endif
-    DB_PRINTLN();
-    delay(5);
 #endif // MOTOR_SERIAL_PLOTTER
+
 #endif // MPU6050
 }
 
@@ -169,13 +190,18 @@ void BalanceDriveController_Setup()
     }
 
     DB_PRINTLN("MPU6050 Found!");
-
-    delay(100);
 #endif // MPU6050
 
-    // attach the rotary encoder counters
+#ifdef MOTOR_DRIVER
+    // setup the motors and attach the rotary encoder counters
+    //motors.begin();
+    motorLeft.begin();
+    motorRight.begin();
+    pinMode(ENCODER_LEFT_A_PIN, INPUT);
+    pinMode(ENCODER_RIGHT_A_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
+#endif    
 }
 
 void BalanceDriveController_Loop()
@@ -185,9 +211,14 @@ void BalanceDriveController_Loop()
 
     // only run every 5ms
     if ((currentTime - lastTime) < 5)
-    {
         return;
-    }
+
+#ifdef MOTOR_SERIAL_PLOTTER
+    SerialPlotterOutput = true;
+    DB_PRINT("ElapsedTime:");
+    DB_PRINT(currentTime - lastTime);
+    DB_PRINT(",");
+#endif
     lastTime = currentTime;
 
     BalanceCar();

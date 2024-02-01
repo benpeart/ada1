@@ -1,4 +1,4 @@
-//#define DEBUG 1
+#define DEBUG 1
 #define XBOX_CONTROLLER
 // #define DEBUG_XBOX_CONTROLLER
 // #define XBOX_SERIAL_PLOTTER
@@ -7,6 +7,10 @@
 
 #include <Arduino.h>
 #include "debug.h"
+
+#ifdef DEBUG
+boolean SerialPlotterOutput = false;
+#endif
 
 #ifdef XBOX_CONTROLLER
 #include <XboxSeriesXControllerESP32_asukiaaa.hpp>
@@ -273,9 +277,11 @@ void keyEventHandle()
 
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(230400);
+#ifdef DEBUG
   while (!Serial)
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
+#endif
 
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
@@ -321,15 +327,16 @@ void loop()
         DB_PRINT(xboxController.xboxNotif.toString());
       }
 #endif
-      unsigned long receivedAt = xboxController.getReceiveNotificationAt();
+//      unsigned long receivedAt = xboxController.getReceiveNotificationAt();
 #ifdef XBOX_SERIAL_PLOTTER
       uint16_t joystickMax = XboxControllerNotificationParser::maxJoy;
+      SerialPlotterOutput = true;
       DB_PRINT("joyLHori:");
       DB_PRINT((float)xboxController.xboxNotif.joyLHori / joystickMax);
       DB_PRINT(",");
       DB_PRINT("joyLVert:");
       DB_PRINT((float)xboxController.xboxNotif.joyLVert / joystickMax);
-      DB_PRINTLN();
+      DB_PRINT(",");
 #endif // XBOX_SERIAL_PLOTTER
     }
   }
@@ -338,17 +345,24 @@ void loop()
 #ifdef DEBUG_XBOX_CONTROLLER
     DB_PRINTLN("not connected");
 #endif
+#if 0
+    // This does not appear to be necessary when specifying a controller address.
+    // To prevent rebooting when a controller turns on but doesn't connect we could
+    // start with an empty address and reboot if failed connections. Once connected, 
+    // save the address in preferences (with a WebUI to clear it) and use that without
+    // the reboot logic on future boots.
     if (xboxController.getCountFailedConnection() > 2)
     {
       ESP.restart();
     }
+#endif
   }
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
   BalanceDriveController_Loop();
 #endif
-  
+
 #ifdef BALANCE_CAR
   keyEventHandle();
 #endif
@@ -379,6 +393,13 @@ void loop()
   if (millis() - start_time == 2000) // Enter the pendulum, the car balances...
   {
     key_value = '5';
+  }
+#endif
+#ifdef DEBUG
+  if (SerialPlotterOutput)
+  {
+    DB_PRINTLN();
+    SerialPlotterOutput = false;
   }
 #endif
 }
