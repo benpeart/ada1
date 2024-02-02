@@ -6,8 +6,8 @@
 #define AIN1_RIGHT 14
 #define AIN2_RIGHT 12
 #define STBY 27
-#define ENCODER_LEFT_A_PIN 39
-#define ENCODER_RIGHT_A_PIN 36
+#define ENCODER_LEFT_A_PIN 5
+#define ENCODER_RIGHT_A_PIN 4
 
 #if 0 // alternate pins that should work if issues with above
 // Pins for all inputs, keep in mind the PWM defines must be on PWM pins

@@ -36,9 +36,9 @@ constexpr static double kp_balance = 55, kd_balance = 0.75;
 constexpr static double kp_speed = 10, ki_speed = 0.26;
 constexpr static double kp_turn = 2.5, kd_turn = 0.5;
 
-// MPU6050 calibration parameters (unused)
-constexpr static double angle_zero = 0;            // x axle angle calibration
-constexpr static double angular_velocity_zero = 0; // x axle angular velocity calibration
+// MPU6050 calibration parameters (never set)
+constexpr static double angle_zero = 0.90;            // x axle angle calibration
+constexpr static double angular_velocity_zero = -4.5; // x axle angular velocity calibration
 #endif
 
 // Rotary encoder state
@@ -72,12 +72,16 @@ Tb6612fng motorLeft(STBY, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
 
 void IRAM_ATTR encoderCountRightA()
 {
-    encoder_count_right_a++;
+    // put an upper bounds on this while testing
+    if (encoder_count_right_a < 24)
+        encoder_count_right_a++;
 }
 
 void IRAM_ATTR encoderCountLeftA()
 {
-    encoder_count_left_a++;
+    // put an upper bounds on this while testing
+    if (encoder_count_left_a < 24)
+        encoder_count_left_a++;
 }
 
 void BalanceCar()
@@ -86,17 +90,27 @@ void BalanceCar()
     int16_t ax, ay, az, gx, gy, gz;
     float kalmanfilter_angle;
 
+#ifdef MOTOR_SERIAL_PLOTTER
+    // serial plotter friendly format
+    SerialPlotterOutput = true;
+    DB_PRINT("encoderCountLeft:");
+    DB_PRINT(encoder_count_left_a);
+    DB_PRINT(",");
+    DB_PRINT("encoderCountRight:");
+    DB_PRINT(encoder_count_right_a);
+    DB_PRINT(",");
+#endif
+    // update the encoder pulse count (speed)
     encoder_left_pulse_num_speed += pwm_left < 0 ? -encoder_count_left_a : encoder_count_left_a;
     encoder_right_pulse_num_speed += pwm_right < 0 ? -encoder_count_right_a : encoder_count_right_a;
     encoder_count_left_a = 0;
     encoder_count_right_a = 0;
-    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-    kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
-    kalmanfilter_angle = kalmanfilter.angle;
-    double balance_control_output = kp_balance * (kalmanfilter_angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
+
+    // adjust the speed and rotation every 8 calls
     speed_control_period_count++;
     if (speed_control_period_count >= 8)
     {
+        // calculate a filtered value of the current speed using the encoder counts
         speed_control_period_count = 0;
         double car_speed = (encoder_left_pulse_num_speed + encoder_right_pulse_num_speed) * 0.5;
         encoder_left_pulse_num_speed = 0;
@@ -106,13 +120,21 @@ void BalanceCar()
         car_speed_integeral += speed_filter;
         car_speed_integeral += -setting_car_speed;
         car_speed_integeral = constrain(car_speed_integeral, -3000, 3000);
+
+        // compute how much input we need to move forward/backward and turn left/right
         speed_control_output = -kp_speed * speed_filter - ki_speed * car_speed_integeral;
         rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
     }
 
+    // read the IMU and compute use a Kalman Filter to compute a filtered angle
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
+    kalmanfilter_angle = kalmanfilter.angle;
+    double balance_control_output = kp_balance * (kalmanfilter_angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
+
+    // final motor output is combination of inputs for balance - speed +/- rotation
     pwm_left = balance_control_output - speed_control_output - rotation_control_output;
     pwm_right = balance_control_output - speed_control_output + rotation_control_output;
-
     pwm_left = constrain(pwm_left, -255, 255);
     pwm_right = constrain(pwm_right, -255, 255);
 
@@ -121,7 +143,7 @@ void BalanceCar()
     // motors.drive(pwm_left / 255.0, pwm_right / 255.0, 0, false);
     motorLeft.drive(pwm_left / 255.0);
     motorRight.drive(pwm_right / 255.0);
-#endif    
+#endif
 
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
@@ -132,15 +154,18 @@ void BalanceCar()
     DB_PRINT("motorRight:");
     DB_PRINT(pwm_right / 255.0);
     DB_PRINT(",");
-    DB_PRINT("encoderCountLeft:");
-    DB_PRINT(encoder_count_left_a);
-    DB_PRINT(",");
-    DB_PRINT("encoderCountRight:");
-    DB_PRINT(encoder_count_right_a);
-    DB_PRINT(",");
 #if 0
     DB_PRINT("angle:");
-    DB_PRINT(kalmanfilter.angle);
+    DB_PRINT(kalmanfilter_angle);
+    DB_PRINT(",");
+    DB_PRINT("correctedAngle:");
+    DB_PRINT(kalmanfilter_angle - angle_zero);
+    DB_PRINT(",");
+    DB_PRINT("gyro.x:");
+    DB_PRINT(kalmanfilter.Gyro_x);
+    DB_PRINT(",");
+    DB_PRINT("correctedGyro.x:");
+    DB_PRINT(kalmanfilter.Gyro_x - angular_velocity_zero);
     DB_PRINT(",");
     DB_PRINT("balance:");
     DB_PRINT(balance_control_output);
@@ -159,10 +184,6 @@ void BalanceCar()
     DB_PRINT(",");
     DB_PRINT("accel.z:");
     DB_PRINT(az);
-    DB_PRINT(",");
-
-    DB_PRINT("gyro.x:");
-    DB_PRINT(gx);
     DB_PRINT(",");
     DB_PRINT("gyro.y:");
     DB_PRINT(gy);
@@ -194,14 +215,16 @@ void BalanceDriveController_Setup()
 
 #ifdef MOTOR_DRIVER
     // setup the motors and attach the rotary encoder counters
-    //motors.begin();
+    // motors.begin();
     motorLeft.begin();
     motorRight.begin();
+
+    // should this be INPUT_PULLUP or INPUT_PULLDOWN?
     pinMode(ENCODER_LEFT_A_PIN, INPUT);
     pinMode(ENCODER_RIGHT_A_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
-#endif    
+#endif
 }
 
 void BalanceDriveController_Loop()
@@ -213,7 +236,7 @@ void BalanceDriveController_Loop()
     if ((currentTime - lastTime) < 5)
         return;
 
-#ifdef MOTOR_SERIAL_PLOTTER
+#ifdef NO_MOTOR_SERIAL_PLOTTER
     SerialPlotterOutput = true;
     DB_PRINT("ElapsedTime:");
     DB_PRINT(currentTime - lastTime);
