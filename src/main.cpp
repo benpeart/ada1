@@ -327,15 +327,22 @@ void loop()
         DB_PRINT(xboxController.xboxNotif.toString());
       }
 #endif
-//      unsigned long receivedAt = xboxController.getReceiveNotificationAt();
+      // normalize the controller input to the range of 0 to 1 then scale and then scale and shift it to the max speed range
+      int car_speed_forward = ((float)xboxController.xboxNotif.trigRT / XboxControllerNotificationParser::maxTrig) * SPEED_FORWARD_MAX - SPEED_FORWARD_MAX;
+      int car_speed_reverse = ((float)xboxController.xboxNotif.trigLT / XboxControllerNotificationParser::maxTrig) * SPEED_REVERSE_MAX - SPEED_REVERSE_MAX;
+
+      // subtract the requested reverse speed from the requested forward speed in case both triggers are requesting different values
+      setting_car_speed = car_speed_forward - car_speed_reverse;
+
+      // the turn speed is based off the left horizontal joystick scaled to the MAX turn speed
+      setting_turn_speed = ((float)xboxController.xboxNotif.joyLHori / XboxControllerNotificationParser::maxJoy) * (TURN_LEFT_MAX - TURN_RIGHT_MAX) - TURN_LEFT_MAX;
 #ifdef XBOX_SERIAL_PLOTTER
-      uint16_t joystickMax = XboxControllerNotificationParser::maxJoy;
       SerialPlotterOutput = true;
-      DB_PRINT("joyLHori:");
-      DB_PRINT((float)xboxController.xboxNotif.joyLHori / joystickMax);
+      DB_PRINT("setting_turn_speed:");
+      DB_PRINT((float)setting_turn_speed);
       DB_PRINT(",");
-      DB_PRINT("joyLVert:");
-      DB_PRINT((float)xboxController.xboxNotif.joyLVert / joystickMax);
+      DB_PRINT("setting_car_speed:");
+      DB_PRINT((float)setting_car_speed);
       DB_PRINT(",");
 #endif // XBOX_SERIAL_PLOTTER
     }

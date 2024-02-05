@@ -2,8 +2,8 @@
 #define DEBUG 1
 #define MPU6050
 #define MOTOR_DRIVER
-//#define MOTOR_SERIAL_PLOTTER
-#define ELAPSED_TIME_SERIAL_PLOTTER
+#define MOTOR_SERIAL_PLOTTER
+// #define ELAPSED_TIME_SERIAL_PLOTTER
 // #define WEB_SERVER
 
 #include "BalanceDriveController.h"
@@ -30,16 +30,16 @@ MPU6050_Base imu;
 KalmanFilter kalmanfilter;
 
 // Kalman Filter parameters
-constexpr static float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+static const float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 
 // PID parameters
-constexpr static float kp_balance = 55, kd_balance = 0.75;
-constexpr static float kp_speed = 10, ki_speed = 0.26;
-constexpr static float kp_turn = 2.5, kd_turn = 0.5;
+static const float kp_balance = 55, kd_balance = 0.75;
+static const float kp_speed = 10, ki_speed = 0.26;
+static const float kp_turn = 2.5, kd_turn = 0.5;
 
 // MPU6050 calibration parameters (never set)
-constexpr static float angle_zero = 0.65f;            // x axle angle calibration
-constexpr static float angular_velocity_zero = -4.5f; // x axle angular velocity calibration
+static const float angle_zero = 0.65f;            // x axle angle calibration
+static const float angular_velocity_zero = -4.5f; // x axle angular velocity calibration
 #endif
 
 // Rotary encoder state
@@ -59,10 +59,10 @@ int setting_car_speed = 0;
 int setting_turn_speed = 0;
 float pwm_left = 0;
 float pwm_right = 0;
-// constexpr static char balance_angle_min = -27;
-// constexpr static char balance_angle_max = 27;
-constexpr static char balance_angle_min = -22;
-constexpr static char balance_angle_max = 22;
+// static const char balance_angle_min = -27;
+// static const char balance_angle_max = 27;
+static const char balance_angle_min = -22;
+static const char balance_angle_max = 22;
 
 #ifdef MOTOR_DRIVER
 // Reverse AIN1/AIN2 and BIN1/BIN2 to reverse the direction of the motors
