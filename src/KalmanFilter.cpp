@@ -5,7 +5,7 @@ void KalmanFilter::Yiorderfilter(float angle_m, float gyro_m, float dt, float K1
   angle6 = K1 * angle_m + (1 - K1) * (angle6 + gyro_m * dt);
 }
 
-void KalmanFilter::Kalman_Filter(double angle_m, double gyro_m, float dt, float Q_angle, float Q_gyro, float R_angle, float C_0)
+void KalmanFilter::Kalman_Filter(float angle_m, float gyro_m, float dt, float Q_angle, float Q_gyro, float R_angle, float C_0)
 {
   angle += (gyro_m - q_bias) * dt;
   angle_err = angle_m - angle;
