@@ -30,16 +30,16 @@ MPU6050_Base imu;
 KalmanFilter kalmanfilter;
 
 // Kalman Filter parameters
-static const float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 
 // PID parameters
-static const float kp_balance = 55, kd_balance = 0.75;
-static const float kp_speed = 10, ki_speed = 0.26;
-static const float kp_turn = 2.5, kd_turn = 0.5;
+float kp_balance = 55, kd_balance = 0.75;
+float kp_speed = 10, ki_speed = 0.26;
+float kp_turn = 2.5, kd_turn = 0.5;
 
-// MPU6050 calibration parameters (never set)
-static const float angle_zero = 0.65f;            // x axle angle calibration
-static const float angular_velocity_zero = -4.5f; // x axle angular velocity calibration
+// MPU6050 calibration parameters
+float angle_zero = -0.7f;            // x axle angle calibration
+float angular_velocity_zero = -4.1f; // x axle angular velocity calibration
 #endif
 
 // Rotary encoder state
@@ -89,7 +89,6 @@ void BalanceCar()
 {
 #ifdef MPU6050
     int16_t ax, ay, az, gx, gy, gz;
-    float kalmanfilter_angle;
 
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
@@ -101,6 +100,7 @@ void BalanceCar()
     DB_PRINT(encoder_count_right_a);
     DB_PRINT(",");
 #endif
+
     // update the encoder pulse count (speed)
     encoder_left_pulse_num_speed += pwm_left < 0 ? -encoder_count_left_a : encoder_count_left_a;
     encoder_right_pulse_num_speed += pwm_right < 0 ? -encoder_count_right_a : encoder_count_right_a;
@@ -111,7 +111,7 @@ void BalanceCar()
     speed_control_period_count++;
     if (speed_control_period_count >= 8)
     {
-        // calculate a filtered value of the current speed using the encoder counts
+        // use a complementary filter of the current speed using the encoder counts
         speed_control_period_count = 0;
         float car_speed = (encoder_left_pulse_num_speed + encoder_right_pulse_num_speed) * 0.5;
         encoder_left_pulse_num_speed = 0;
@@ -132,10 +132,9 @@ void BalanceCar()
     // read the IMU and compute use a Kalman Filter to compute a filtered angle
     imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
-    kalmanfilter_angle = kalmanfilter.angle;
 
     // use PID controller to compute the input we need to balance
-    float balance_control_output = kp_balance * (kalmanfilter_angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
+    float balance_control_output = kp_balance * (kalmanfilter.angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
 
     // final motor output is combination of inputs for balance - speed +/- rotation
     pwm_left = balance_control_output - speed_control_output - rotation_control_output;
@@ -153,24 +152,24 @@ void BalanceCar()
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
     SerialPlotterOutput = true;
-    DB_PRINT("motorLeft:");
-    DB_PRINT(pwm_left / 255.0);
-    DB_PRINT(",");
-    DB_PRINT("motorRight:");
-    DB_PRINT(pwm_right / 255.0);
-    DB_PRINT(",");
-#if 0
     DB_PRINT("angle:");
-    DB_PRINT(kalmanfilter_angle);
+    DB_PRINT(kalmanfilter.angle);
     DB_PRINT(",");
     DB_PRINT("correctedAngle:");
-    DB_PRINT(kalmanfilter_angle - angle_zero);
+    DB_PRINT(kalmanfilter.angle - angle_zero);
     DB_PRINT(",");
     DB_PRINT("gyro.x:");
     DB_PRINT(kalmanfilter.Gyro_x);
     DB_PRINT(",");
     DB_PRINT("correctedGyro.x:");
     DB_PRINT(kalmanfilter.Gyro_x - angular_velocity_zero);
+    DB_PRINT(",");
+#if 0
+    DB_PRINT("motorLeft:");
+    DB_PRINT(pwm_left / 255.0);
+    DB_PRINT(",");
+    DB_PRINT("motorRight:");
+    DB_PRINT(pwm_right / 255.0);
     DB_PRINT(",");
     DB_PRINT("balance:");
     DB_PRINT(balance_control_output);
@@ -190,6 +189,9 @@ void BalanceCar()
     DB_PRINT("accel.z:");
     DB_PRINT(az);
     DB_PRINT(",");
+    DB_PRINT("gyro.x:");
+    DB_PRINT(gx);
+    DB_PRINT(",");
     DB_PRINT("gyro.y:");
     DB_PRINT(gy);
     DB_PRINT(",");
@@ -201,7 +203,7 @@ void BalanceCar()
 #endif // MPU6050
 }
 
-void BalanceDriveController_Setup()
+void BalanceDriveController_Setup(Preferences &preferences)
 {
 #ifdef MPU6050
     Wire.begin();
@@ -214,8 +216,28 @@ void BalanceDriveController_Setup()
             delay(10);
         }
     }
-
     DB_PRINTLN("MPU6050 Found!");
+
+    // Load our various calibration values from the 20K of EEPROM
+    // Kalman Filter parameters
+    dt = preferences.getFloat("dt", 0.005);
+    Q_angle = preferences.getFloat("Q_angle", 0.001);
+    Q_gyro = preferences.getFloat("Q_gyro", 0.005);
+    R_angle = preferences.getFloat("R_angle", 0.5);
+    C_0 = preferences.getFloat("C_0", 1);
+    K1 = preferences.getFloat("K1", 0.05);
+
+    // PID parameters
+    kp_balance = preferences.getFloat("kp_balance", 55);
+    kd_balance = preferences.getFloat("kd_balance", 0.75);
+    kp_speed = preferences.getFloat("kp_speed", 10);
+    ki_speed = preferences.getFloat("ki_speed", 0.26);
+    kp_turn = preferences.getFloat("kp_turn", 2.5);
+    kd_turn = preferences.getFloat("kd_turn", 0.5);
+
+    // MPU6050 calibration parameters
+    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
+    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
 #endif // MPU6050
 
 #ifdef MOTOR_DRIVER

@@ -7,6 +7,13 @@
 
 #include <Arduino.h>
 #include "debug.h"
+#include <Preferences.h> // for storing settings in the ESP32 EEPROM
+
+// -- EEPROM
+Preferences preferences;
+#define PREF_VERSION 1 // if setting structure has been changed, count this number up to delete all settings
+#define PREF_NAMESPACE    "pref"
+#define PREF_KEY_VERSION  "ver"
 
 #ifdef DEBUG
 boolean SerialPlotterOutput = false;
@@ -278,10 +285,15 @@ void keyEventHandle()
 void setup()
 {
   Serial.begin(230400);
-#ifdef DEBUG
-  while (!Serial)
-    delay(10); // will pause Zero, Leonardo, etc until serial console opens
-#endif
+
+  preferences.begin(PREF_NAMESPACE, false); // false = RW-mode
+  // Init EEPROM, if not done before
+  if (preferences.getUInt(PREF_KEY_VERSION, 0) != PREF_VERSION)
+  {
+    preferences.clear(); // Remove all preferences under the opened namespace
+    preferences.putUInt(PREF_KEY_VERSION, PREF_VERSION);
+    DB_PRINTF("EEPROM init complete, all preferences deleted, new pref_version: %d\n", PREF_VERSION);
+  }
 
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
@@ -295,7 +307,7 @@ void setup()
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
-  BalanceDriveController_Setup();
+  BalanceDriveController_Setup(preferences);
 #endif
 
 #ifdef BALANCE_CAR

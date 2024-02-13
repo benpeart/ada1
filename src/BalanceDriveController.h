@@ -1,6 +1,8 @@
 #ifndef BalanceDriveController_h
 #define BalanceDriveController_h
 
+#include <Preferences.h> // for storing settings in the ESP32 EEPROM
+
 #define SPEED_FORWARD_MAX   80
 #define SPEED_REVERSE_MAX   80
 extern int setting_car_speed;
@@ -9,7 +11,7 @@ extern int setting_car_speed;
 #define TURN_RIGHT_MAX  -80
 extern int setting_turn_speed;
 
-void BalanceDriveController_Setup();
+void BalanceDriveController_Setup(Preferences &preferences);
 void BalanceDriveController_Loop();
 
 #endif // BalanceDriveController_h

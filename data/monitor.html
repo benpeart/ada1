@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Line Chart</title>
+    <!-- Include Chart.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <canvas id="myChart" width="400" height="200"></canvas>
+
+    <button name="plotStart" onclick="plotStartStop(1)" style="width:80px">Start</button>
+    <button name="plotStop" onclick="plotStartStop(0)" style="width:80px">Stop</button>
+    <button name="plotClear" style="width:80px">Clear</button><br /><br />
+
+    <fieldset style="width:300px">
+        <legend>Plot control</legend>
+        Sample rate [Hz]:<br />
+        <input id="plotRate" type="radio" name="sampleRate" value="8">25
+        <input id="plotRate" type="radio" name="sampleRate" value="4" checked>50
+        <input id="plotRate" type="radio" name="sampleRate" value="2">100
+        <input id="plotRate" type="radio" name="sampleRate" value="1">200<br /><br />
+
+        Signals to plot<br />
+        <input type="checkbox" name="plotOption" id="accAngle" onchange=plotOption(this); checked>Kalman filter angle<br />
+        <input type="checkbox" name="plotOption" id="filterAngle" onchange=plotOption(this); checked>Corrected gyro X<br />
+        <input type="checkbox" name="plotOption" id="PID1setpoint" onchange=plotOption(this);>Accelerometer X<br />
+        <input type="checkbox" name="plotOption" id="PID1input" onchange=plotOption(this);>Accelerometer Y<br />
+        <input type="checkbox" name="plotOption" id="PID1output" onchange=plotOption(this);>Accelerometer Z<br />
+        <input type="checkbox" name="plotOption" id="PID2setpoint" onchange=plotOption(this);>Gyro X<br />
+        <input type="checkbox" name="plotOption" id="PID2input" onchange=plotOption(this);>Gyro Y<br />
+        <input type="checkbox" name="plotOption" id="PID2output" onchange=plotOption(this);>Gyro Z<br />
+        <input type="checkbox" name="plotOption" id="PID3setpoint" onchange=plotOption(this);>PID speed setpoint<br />
+        <input type="checkbox" name="plotOption" id="PID3input" onchange=plotOption(this);>PID speed input<br />
+        <input type="checkbox" name="plotOption" id="PID3output" onchange=plotOption(this);>PID speed output<br />
+        <input type="checkbox" name="plotOption" id="motLeftSpeed" onchange=plotOption(this);>Left motor speed<br />
+        <input type="checkbox" name="plotOption" id="motRightSpeed" onchange=plotOption(this);>Right motor speed<br />
+    </fieldset>
+
+</body>
+
+<script>
+    const canvas = document.getElementById('myChart');
+    const ctx = canvas.getContext('2d');
+
+    // pass an array of data to be added to each item in the dataset
+    function addData(chart, data) {
+        // only show the latest 60 data points in chart
+        if (chart.data.labels.length >= 60) {
+            removeData(chart, false)
+        };
+        chart.data.labels.push(chart.data.labels.length);
+        chart.data.datasets.forEach((dataset, index) => {
+            dataset.data.push(data[index]);
+        });
+        chart.update();
+    }
+
+    // remove the oldest data from each dataset
+    function removeData(chart, update = true) {
+        chart.data.labels.splice(0, 1);
+        chart.data.datasets.forEach((dataset) => {
+            dataset.data.splice(0, 1);
+        });
+        if (update)
+            chart.update();
+    }
+
+    function setVisibility(chart, index, hidden = false) {
+        chart.getDatasetMeta(index).hidden = hidden;
+    }
+
+    // Find which signals are to be plotted
+    var plotOption = function (e) {
+        var plotOptions = document.getElementsByName("plotOption");
+        var plotOptionLength = plotOptions.length;
+
+        for (var i = 0; i < plotOptionLength; i++) {
+            myChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
+        }
+    }
+
+    const data = {
+        labels: [],
+        datasets: [{
+            label: 'Kalman filter angle',
+            data: [],
+            borderColor: 'rgba(0, 0, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Corrected gyro X',
+            data: [],
+            borderColor: 'rgba(255, 0, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Accelerometer X',
+            data: [],
+            borderColor: 'rgba(0, 255, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Accelerometer Y',
+            data: [],
+            borderColor: 'rgba(0, 0, 255, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Accelerometer Z',
+            data: [],
+            borderColor: 'rgba(255, 255, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Gyro X',
+            data: [],
+            borderColor: 'rgba(0, 255, 255, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Gyro Y',
+            data: [],
+            borderColor: 'rgba(255, 0, 255, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Gyro Z',
+            data: [],
+            borderColor: 'rgba(192, 192, 192, 1)',
+            fill: false,
+            hidden: false,
+        },
+        ],
+    }
+
+    const config = {
+        type: 'line',
+        data: data,
+        options: {
+            responsive: true,
+            animation: false, // Disable animation for real-time updates
+            scales: {
+                x: {
+                    ticks: {
+                        display: false
+                    }
+                }
+            }
+        },
+    };
+
+    const myChart = new Chart(ctx, config);
+
+    // initialize the signals to plot
+    plotOption(this);
+
+    // Simulate real-time data (randomly add new data every second)
+    setInterval(() => {
+        let newData = [];
+        for (let i = 0; i < 8; i++)
+            newData[i] = Math.random() * 2 - 1;
+
+        addData(myChart, newData);
+    }, 100);
+
+</script>
+
+</html>
