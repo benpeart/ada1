@@ -1,19 +1,29 @@
-#define DEBUG 1
-#define XBOX_CONTROLLER
-// #define DEBUG_XBOX_CONTROLLER
-// #define XBOX_SERIAL_PLOTTER
-// #define XBOX_SERIES_X_CONTROLLER_DEBUG_SERIAL Serial
-#define BALANCE_DRIVE_CONTROLLER
-
+#include "conditional.h"
 #include <Arduino.h>
 #include "debug.h"
 #include <Preferences.h> // for storing settings in the ESP32 EEPROM
 
+#ifdef WEB_SERVER
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <WebSocketsServer.h>
+#include <ArduinoOTA.h>
+#include <ESPmDNS.h>
+#include <SPIFFS.h>
+#include <SPIFFSEditor.h>
+
+char robotName[63] = "ada";
+const char *http_username = "admin";
+const char *http_password = "admin";
+AsyncWebServer httpServer(80);
+WebSocketsServer wsServer = WebSocketsServer(81);
+#endif // WEB_SERVER
+
 // -- EEPROM
 Preferences preferences;
 #define PREF_VERSION 1 // if setting structure has been changed, count this number up to delete all settings
-#define PREF_NAMESPACE    "pref"
-#define PREF_KEY_VERSION  "ver"
+#define PREF_NAMESPACE "pref"
+#define PREF_KEY_VERSION "ver"
 
 #ifdef DEBUG
 boolean SerialPlotterOutput = false;
@@ -33,260 +43,12 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 #include "BalanceDriveController.h"
 #endif
 
-#ifdef CHECK_VOLTAGE
-#include "voltage.h"
-#endif
-
-#ifdef BALANCE_CAR
-#include "BalanceCar.h"
-
-unsigned long start_prev_time = 0;
-boolean carInitialize_en = true;
-
-void setMotionState()
-{
-  switch (motion_mode)
-  {
-  case FORWARD:
-    switch (function_mode)
-    {
-    case FOLLOW:
-      setting_car_speed = 20;
-      setting_turn_speed = 0;
-      break;
-    case FOLLOW2:
-      setting_car_speed = 20;
-      setting_turn_speed = 0;
-      break;
-    case BLUETOOTH:
-      setting_car_speed = 80;
-      break;
-    case IRREMOTE:
-      setting_car_speed = 80;
-      setting_turn_speed = 0;
-      break;
-    default:
-      setting_car_speed = 40;
-      setting_turn_speed = 0;
-      break;
-    }
-    break;
-  case BACKWARD:
-    switch (function_mode)
-    {
-    case FOLLOW:
-      setting_car_speed = -20;
-      setting_turn_speed = 0;
-      break;
-    case FOLLOW2:
-      setting_car_speed = -20;
-      setting_turn_speed = 0;
-      break;
-    case BLUETOOTH:
-      setting_car_speed = -80;
-      break;
-    case IRREMOTE:
-      setting_car_speed = -80;
-      setting_turn_speed = 0;
-      break;
-    default:
-      setting_car_speed = -40;
-      setting_turn_speed = 0;
-      break;
-    }
-    break;
-  case TURNLEFT:
-    switch (function_mode)
-    {
-    case FOLLOW:
-      setting_car_speed = 0;
-      setting_turn_speed = 50;
-      break;
-    case FOLLOW2:
-      setting_car_speed = 0;
-      setting_turn_speed = 50;
-      break;
-    case BLUETOOTH:
-      setting_turn_speed = 80;
-      break;
-    case IRREMOTE:
-      setting_car_speed = 0;
-      setting_turn_speed = 80;
-      break;
-    default:
-      setting_car_speed = 0;
-      setting_turn_speed = 50;
-      break;
-    }
-    break;
-  case TURNRIGHT:
-    switch (function_mode)
-    {
-    case FOLLOW:
-      setting_car_speed = 0;
-      setting_turn_speed = -50;
-      break;
-    case FOLLOW2:
-      setting_car_speed = 0;
-      setting_turn_speed = -50;
-      break;
-    case BLUETOOTH:
-      setting_turn_speed = -80;
-      break;
-    case IRREMOTE:
-      setting_car_speed = 0;
-      setting_turn_speed = -80;
-      break;
-    default:
-      setting_car_speed = 0;
-      setting_turn_speed = -50;
-      break;
-    }
-    break;
-  case STANDBY:
-    setting_car_speed = 0;
-    setting_turn_speed = 0;
-    break;
-  case STOP:
-    if (millis() - start_prev_time > 1000)
-    {
-      function_mode = IDLE;
-      if (balance_angle_min <= kalmanfilter_angle && kalmanfilter_angle <= balance_angle_max)
-      {
-        motion_mode = STANDBY;
-      }
-    }
-    break;
-  case START:
-    if (millis() - start_prev_time > 2000)
-    {
-      if (balance_angle_min <= kalmanfilter_angle && kalmanfilter_angle <= balance_angle_max)
-      {
-        car_speed_integeral = 0;
-        setting_car_speed = 0;
-        motion_mode = STANDBY;
-      }
-      else
-      {
-        motion_mode = STOP;
-        carStop();
-      }
-    }
-    break;
-  default:
-    break;
-  }
-}
-
-void keyEventHandle()
-{
-  if (key_value != '\0')
-  {
-    key_flag = key_value;
-
-    switch (key_value)
-    {
-    case 's':
-      motion_mode = STANDBY;
-      break;
-    case 'f':
-      motion_mode = FORWARD;
-      break;
-    case 'b':
-      motion_mode = BACKWARD;
-      break;
-    case 'l':
-      motion_mode = TURNLEFT;
-      break;
-    case 'i':
-      motion_mode = TURNRIGHT;
-      break;
-    case '1':
-      function_mode = FOLLOW;
-      follow_flag = 0;
-      follow_prev_time = millis();
-      break;
-    case '2':
-      function_mode = OBSTACLE;
-      obstacle_avoidance_flag = 0;
-      obstacle_avoidance_prev_time = millis();
-      break;
-
-    case '3':
-    rgb_loop:
-      break;
-    case '4':
-      function_mode = IDLE;
-      motion_mode = STOP;
-      carBack(110);
-      delay((kalmanfilter_angle - 30) * (kalmanfilter_angle - 30) / 8);
-      carStop();
-      start_prev_time = millis();
-      rgb.brightRedColor();
-      break;
-    case '5':
-      if (millis() - start_prev_time > 500 && kalmanfilter_angle >= balance_angle_min)
-      {
-        start_prev_time = millis();
-        motion_mode = START;
-      }
-      motion_mode = START;
-      break;
-    case '6':
-      rgb.brightness = 50;
-      rgb.setBrightness(rgb.brightness);
-      rgb.show();
-      break;
-    case '7':
-      rgb.brightRedColor();
-      rgb.brightness -= 25;
-      if (rgb.brightness <= 0)
-      {
-        rgb.brightness = 0;
-      }
-      rgb.setBrightness(rgb.brightness);
-      rgb.show();
-      break;
-    case '8':
-      rgb.brightRedColor();
-      rgb.brightness += 25;
-      if (rgb.brightness >= 255)
-      {
-        rgb.brightness = 255;
-      }
-      rgb.setBrightness(rgb.brightness);
-      rgb.show();
-      break;
-    case '9':
-      rgb.brightness = 0;
-      rgb.setBrightness(rgb.brightness);
-      rgb.show();
-      break;
-    case '0':
-      function_mode = FOLLOW2;
-      follow_flag = 0;
-      follow_prev_time = millis();
-      break;
-    case '*':
-      break;
-    case '#':
-      break;
-    default:
-      break;
-    }
-    if (key_flag == key_value)
-    {
-      key_value = '\0';
-    }
-  }
-}
-#endif
-
 void setup()
 {
   Serial.begin(230400);
 
   preferences.begin(PREF_NAMESPACE, false); // false = RW-mode
+
   // Init EEPROM, if not done before
   if (preferences.getUInt(PREF_KEY_VERSION, 0) != PREF_VERSION)
   {
@@ -295,6 +57,106 @@ void setup()
     DB_PRINTF("EEPROM init complete, all preferences deleted, new pref_version: %d\n", PREF_VERSION);
   }
 
+#ifdef WEB_SERVER
+  // SPIFFS setup
+  if (!SPIFFS.begin(false))
+  {
+    DB_PRINTLN("SPIFFS mount failed");
+    return;
+  }
+  else
+  {
+    DB_PRINTLN("SPIFFS mount success");
+  }
+
+  // Read robot name
+  preferences.getBytes("robot_name", robotName, sizeof(robotName));
+
+  // Connect to Wifi and setup OTA if known Wifi network cannot be found
+  boolean wifiConnected = 0;
+//  if (preferences.getUInt("wifi_mode", 0) == 1)
+  {
+    char ssid[63] = "IOT";
+    char key[63] = "";
+    preferences.getBytes("wifi_ssid", ssid, sizeof(ssid));
+    preferences.getBytes("wifi_key", key, sizeof(key));
+
+    DB_PRINTF("Connecting to '%s'\n", ssid);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, key);
+    if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
+    {
+      DB_PRINT("Connected to WiFi with IP address: ");
+      DB_PRINTLN(WiFi.localIP());
+      wifiConnected = 1;
+    }
+    else
+    {
+      DB_PRINTLN("Could not connect to known WiFi network");
+    }
+  }
+  if (!wifiConnected)
+  {
+    DB_PRINTLN("Starting AP...");
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(robotName, "turboturbo");
+    DB_PRINTF("AP named '%s' started, IP address: %s\n", WiFi.softAPSSID(), WiFi.softAPIP());
+  }
+
+  // setup for OTA flash updates
+  ArduinoOTA.setHostname(robotName);
+  ArduinoOTA
+      .onStart([]()
+               {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH)
+      type = "sketch";
+    else // U_SPIFFS
+      type = "filesystem";
+    DB_PRINTLN("Start updating " + type); })
+      .onEnd([]()
+             { DB_PRINTLN("\nEnd"); })
+      .onProgress([](unsigned int progress, unsigned int total)
+                  { DB_PRINTF("Progress: %u%%\r\n", (progress / (total / 100))); })
+      .onError([](ota_error_t error)
+               {
+    DB_PRINTF("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) DB_PRINTLN("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) DB_PRINTLN("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) DB_PRINTLN("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) DB_PRINTLN("Receive Failed");
+    else if (error == OTA_END_ERROR) DB_PRINTLN("End Failed"); });
+  ArduinoOTA.begin();
+
+  // Start DNS server
+  if (MDNS.begin(robotName))
+  {
+    DB_PRINTF("MDNS responder started, name: %s\n", robotName);
+  }
+  else
+  {
+    DB_PRINTLN("Could not start MDNS responder");
+  }
+
+  httpServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+                {
+    DB_PRINTLN("Loading index.htm");
+    request->send(SPIFFS, "/index.htm"); });
+
+  httpServer.serveStatic("/", SPIFFS, "/");
+  httpServer.onNotFound([](AsyncWebServerRequest *request)
+                        { request->send(404, "text/plain", "FileNotFound"); });
+
+  httpServer.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
+  httpServer.begin();
+
+  wsServer.begin();
+  //  wsServer.onEvent(webSocketEvent);
+
+  MDNS.addService("http", "tcp", 80);
+  MDNS.addService("ws", "tcp", 81);
+#endif // WEB_SERVER
+
 #ifdef XBOX_CONTROLLER
 #ifdef DEBUG_XBOX_CONTROLLER
   DB_PRINTLN("Starting NimBLE Client");
@@ -302,22 +164,18 @@ void setup()
   xboxController.begin();
 #endif
 
-#ifdef CHECK_VOLTAGE
-  voltageInit(); // Check that the voltage of the battery is high enough
-#endif
-
 #ifdef BALANCE_DRIVE_CONTROLLER
   BalanceDriveController_Setup(preferences);
-#endif
-
-#ifdef BALANCE_CAR
-  start_prev_time = millis();
-  carInitialize();
 #endif
 }
 
 void loop()
 {
+#ifdef WEB_SERVER
+  ArduinoOTA.handle();
+  wsServer.loop();
+#endif
+
 #ifdef XBOX_CONTROLLER
   xboxController.onLoop();
   if (xboxController.isConnected())
@@ -379,41 +237,13 @@ void loop()
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
+#ifdef WEB_SERVER
+  BalanceDriveController_Loop(wsServer);
+#else
   BalanceDriveController_Loop();
-#endif
+#endif // WEB_SERVER
+#endif // BALANCE_DRIVE_CONTROLLER
 
-#ifdef BALANCE_CAR
-  keyEventHandle();
-#endif
-
-#ifdef CHECK_VOLTAGE
-  voltageMeasure();
-#endif
-
-#ifdef BALANCE_CAR
-  setMotionState();
-
-#ifdef DEBUG
-  static unsigned long print_time;
-  if (millis() - print_time > 100)
-  {
-    print_time = millis();
-    DB_PRINTLN(kalmanfilter.angle);
-  }
-#endif
-
-  static unsigned long start_time;
-  if (millis() - start_time < 10)
-  {
-    function_mode = IDLE;
-    motion_mode = STOP;
-    carStop();
-  }
-  if (millis() - start_time == 2000) // Enter the pendulum, the car balances...
-  {
-    key_value = '5';
-  }
-#endif
 #ifdef DEBUG
   if (SerialPlotterOutput)
   {

@@ -4,8 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Line Chart</title>
-    <!-- Include Chart.js library -->
+    <title>Ada Real-Time Chart</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
@@ -18,11 +17,6 @@
 
     <fieldset style="width:300px">
         <legend>Plot control</legend>
-        Sample rate [Hz]:<br />
-        <input id="plotRate" type="radio" name="sampleRate" value="8">25
-        <input id="plotRate" type="radio" name="sampleRate" value="4" checked>50
-        <input id="plotRate" type="radio" name="sampleRate" value="2">100
-        <input id="plotRate" type="radio" name="sampleRate" value="1">200<br /><br />
 
         Signals to plot<br />
         <input type="checkbox" name="plotOption" id="accAngle" onchange=plotOption(this); checked>Kalman filter angle<br />
@@ -45,43 +39,6 @@
 <script>
     const canvas = document.getElementById('myChart');
     const ctx = canvas.getContext('2d');
-
-    // pass an array of data to be added to each item in the dataset
-    function addData(chart, data) {
-        // only show the latest 60 data points in chart
-        if (chart.data.labels.length >= 60) {
-            removeData(chart, false)
-        };
-        chart.data.labels.push(chart.data.labels.length);
-        chart.data.datasets.forEach((dataset, index) => {
-            dataset.data.push(data[index]);
-        });
-        chart.update();
-    }
-
-    // remove the oldest data from each dataset
-    function removeData(chart, update = true) {
-        chart.data.labels.splice(0, 1);
-        chart.data.datasets.forEach((dataset) => {
-            dataset.data.splice(0, 1);
-        });
-        if (update)
-            chart.update();
-    }
-
-    function setVisibility(chart, index, hidden = false) {
-        chart.getDatasetMeta(index).hidden = hidden;
-    }
-
-    // Find which signals are to be plotted
-    var plotOption = function (e) {
-        var plotOptions = document.getElementsByName("plotOption");
-        var plotOptionLength = plotOptions.length;
-
-        for (var i = 0; i < plotOptionLength; i++) {
-            myChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
-        }
-    }
 
     const data = {
         labels: [],
@@ -133,6 +90,36 @@
             borderColor: 'rgba(192, 192, 192, 1)',
             fill: false,
             hidden: false,
+        }, {
+            label: 'PID speed setpoint',
+            data: [],
+            borderColor: 'rgba(192, 192, 192, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'PID speed input',
+            data: [],
+            borderColor: 'rgba(128, 128, 128, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'PID speed output',
+            data: [],
+            borderColor: 'rgba(128, 0, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Left motor speed',
+            data: [],
+            borderColor: 'rgba(128, 128, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Right motor speed',
+            data: [],
+            borderColor: 'rgba(0, 128, 0, 1)',
+            fill: false,
+            hidden: false,
         },
         ],
     }
@@ -153,19 +140,73 @@
         },
     };
 
+    // pass an array of data to be added to each item in the dataset
+    function addData(chart, data) {
+        // only show the latest 60 data points in chart
+        if (chart.data.labels.length >= 60) {
+            removeData(chart, false)
+        };
+        chart.data.labels.push(chart.data.labels.length);
+        chart.data.datasets.forEach((dataset, index) => {
+            dataset.data.push(data[index]);
+        });
+        chart.update();
+    }
+
+    // remove the oldest data from each dataset
+    function removeData(chart, update = true) {
+        chart.data.labels.splice(0, 1);
+        chart.data.datasets.forEach((dataset) => {
+            dataset.data.splice(0, 1);
+        });
+        if (update)
+            chart.update();
+    }
+
+    function setVisibility(chart, index, hidden = false) {
+        chart.getDatasetMeta(index).hidden = hidden;
+    }
+
+    // Find which signals are to be plotted
+    var plotOption = function (e) {
+        var plotOptions = document.getElementsByName("plotOption");
+        var plotOptionLength = plotOptions.length;
+
+        for (var i = 0; i < plotOptionLength; i++) {
+            myChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
+        }
+    }
+
+    // the number of signals we can plot
+    var nSignal = 13;
+
+    // create the chart
     const myChart = new Chart(ctx, config);
 
-    // initialize the signals to plot
+    // initialize the signals to we want to plot based on what is checked
     plotOption(this);
 
-    // Simulate real-time data (randomly add new data every second)
-    setInterval(() => {
-        let newData = [];
-        for (let i = 0; i < 8; i++)
-            newData[i] = Math.random() * 2 - 1;
+    // open a connection to 
+    var connection = new WebSocket('ws://' + location.hostname + ':81/', ['arduino']);
+    connection.binaryType = 'arraybuffer';
+    
+    connection.onopen = function () {
+    };
 
+    connection.onerror = function (error) {
+        console.log('WebSocket Error ', error);
+    };
+
+    connection.onmessage = function (e) {
+        var d = e.data;
+        var dv = new DataView(d);
+        let newData = [];
+
+        for (var i = 0; i < nSignal; i++) {
+            newData[i] = dv.getFloat32(i * 4, true);
+        }
         addData(myChart, newData);
-    }, 100);
+    };
 
 </script>
 

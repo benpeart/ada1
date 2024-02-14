@@ -1,11 +1,4 @@
-// Toggle various compile time features of the Balance Drive Controller
-#define DEBUG 1
-#define MPU6050
-#define MOTOR_DRIVER
-#define MOTOR_SERIAL_PLOTTER
-// #define ELAPSED_TIME_SERIAL_PLOTTER
-// #define WEB_SERVER
-
+#include "conditional.h"
 #include "BalanceDriveController.h"
 #include "pins.h"
 #include "debug.h"
@@ -85,7 +78,11 @@ void IRAM_ATTR encoderCountLeftA()
         encoder_count_left_a++;
 }
 
+#ifdef WEB_SERVER
+void BalanceCar(WebSocketsServer &wsServer)
+#else
 void BalanceCar()
+#endif
 {
 #ifdef MPU6050
     int16_t ax, ay, az, gx, gy, gz;
@@ -149,36 +146,36 @@ void BalanceCar()
     motorRight.drive(pwm_right / 255.0);
 #endif
 
+#ifdef WEB_SERVER
+    if (wsServer.connectedClients(0) > 0)
+    {
+        float plotData[13];
+
+        plotData[0] = kalmanfilter.angle - angle_zero;
+        plotData[1] = kalmanfilter.Gyro_x - angular_velocity_zero;
+        plotData[2] = ax;
+        plotData[3] = ay;
+        plotData[4] = az;
+        plotData[5] = gx;
+        plotData[6] = gy;
+        plotData[7] = gz;
+        plotData[8] = 0;
+        plotData[9] = 0;
+        plotData[10] = 0;
+        plotData[11] = pwm_left / 255.0;
+        plotData[12] = pwm_right / 255.0;
+        wsServer.sendBIN(0, (uint8_t *)plotData, sizeof(plotData));
+    }
+#endif
+
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
     SerialPlotterOutput = true;
-    DB_PRINT("angle:");
-    DB_PRINT(kalmanfilter.angle);
-    DB_PRINT(",");
     DB_PRINT("correctedAngle:");
     DB_PRINT(kalmanfilter.angle - angle_zero);
     DB_PRINT(",");
-    DB_PRINT("gyro.x:");
-    DB_PRINT(kalmanfilter.Gyro_x);
-    DB_PRINT(",");
     DB_PRINT("correctedGyro.x:");
     DB_PRINT(kalmanfilter.Gyro_x - angular_velocity_zero);
-    DB_PRINT(",");
-#if 0
-    DB_PRINT("motorLeft:");
-    DB_PRINT(pwm_left / 255.0);
-    DB_PRINT(",");
-    DB_PRINT("motorRight:");
-    DB_PRINT(pwm_right / 255.0);
-    DB_PRINT(",");
-    DB_PRINT("balance:");
-    DB_PRINT(balance_control_output);
-    DB_PRINT(",");
-    DB_PRINT("pwm_left:");
-    DB_PRINT(pwm_left);
-    DB_PRINT(",");
-    DB_PRINT("pwm_right:");
-    DB_PRINT(pwm_right);
     DB_PRINT(",");
     DB_PRINT("accel.x:");
     DB_PRINT(ax);
@@ -197,6 +194,28 @@ void BalanceCar()
     DB_PRINT(",");
     DB_PRINT("gyro.z:");
     DB_PRINT(gz);
+    DB_PRINT("motorLeft:");
+    DB_PRINT(pwm_left / 255.0);
+    DB_PRINT(",");
+    DB_PRINT("motorRight:");
+    DB_PRINT(pwm_right / 255.0);
+    DB_PRINT(",");
+#if 0
+    DB_PRINT("angle:");
+    DB_PRINT(kalmanfilter.angle);
+    DB_PRINT(",");
+    DB_PRINT("gyro.x:");
+    DB_PRINT(kalmanfilter.Gyro_x);
+    DB_PRINT(",");
+    DB_PRINT("balance:");
+    DB_PRINT(balance_control_output);
+    DB_PRINT(",");
+    DB_PRINT("pwm_left:");
+    DB_PRINT(pwm_left);
+    DB_PRINT(",");
+    DB_PRINT("pwm_right:");
+    DB_PRINT(pwm_right);
+    DB_PRINT(",");
 #endif
 #endif // MOTOR_SERIAL_PLOTTER
 
@@ -238,7 +257,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     // MPU6050 calibration parameters
     angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
     angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
-#endif // MPU6050
+#endif                                                                           // MPU6050
 
 #ifdef MOTOR_DRIVER
     // setup the motors and attach the rotary encoder counters
@@ -254,7 +273,11 @@ void BalanceDriveController_Setup(Preferences &preferences)
 #endif
 }
 
-void BalanceDriveController_Loop()
+#ifdef WEB_SERVER
+void BalanceDriveController_Loop(WebSocketsServer &wsServer)
+#else
+void BalanceDriveController_Loop();
+#endif
 {
     static unsigned long lastTime = 0;
     unsigned long currentTime = millis();
@@ -271,8 +294,5 @@ void BalanceDriveController_Loop()
 #endif
     lastTime = currentTime;
 
-    BalanceCar();
-#ifdef WEB_SERVER
-    webserver_loop(mpu);
-#endif
+    BalanceCar(wsServer);
 }
