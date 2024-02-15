@@ -16,6 +16,17 @@
 
 #ifdef WEB_SERVER
 #include "WebServer.h"
+#include <WebSocketsServer.h>
+
+WebSocketsServer wsServer = WebSocketsServer(81);
+
+// Plot settings
+struct
+{
+    boolean enable = 0; // Enable sending data
+    uint8_t prescaler = 4;
+} plot;
+
 #endif
 
 #ifdef MPU6050
@@ -38,24 +49,10 @@ float angular_velocity_zero = -4.1f; // x axle angular velocity calibration
 // Rotary encoder state
 volatile unsigned long encoder_count_right_a = 0;
 volatile unsigned long encoder_count_left_a = 0;
-int encoder_left_pulse_num_speed = 0;
-int encoder_right_pulse_num_speed = 0;
 
-// Speed tracking state
-float speed_control_output = 0;
-float rotation_control_output = 0;
-float speed_filter = 0;
-int speed_control_period_count = 0;
-float car_speed_integeral = 0;
-float speed_filter_old = 0;
+// Exported so Xbox controller can change them
 int setting_car_speed = 0;
 int setting_turn_speed = 0;
-float pwm_left = 0;
-float pwm_right = 0;
-// static const char balance_angle_min = -27;
-// static const char balance_angle_max = 27;
-static const char balance_angle_min = -22;
-static const char balance_angle_max = 22;
 
 #ifdef MOTOR_DRIVER
 // Reverse AIN1/AIN2 and BIN1/BIN2 to reverse the direction of the motors
@@ -78,13 +75,26 @@ void IRAM_ATTR encoderCountLeftA()
         encoder_count_left_a++;
 }
 
-#ifdef WEB_SERVER
-void BalanceCar(WebSocketsServer &wsServer)
-#else
 void BalanceCar()
-#endif
 {
 #ifdef MPU6050
+    static int speed_control_period_count = 0;
+    static int encoder_left_pulse_num_speed = 0;
+    static int encoder_right_pulse_num_speed = 0;
+
+    // Speed tracking state
+    static float speed_control_output = 0;
+    static float rotation_control_output = 0;
+    static float speed_filter = 0;
+    static float car_speed_integeral = 0;
+    static float speed_filter_old = 0;
+    static float pwm_left = 0;
+    static float pwm_right = 0;
+    // static const char balance_angle_min = -27;
+    // static const char balance_angle_max = 27;
+    // static const char balance_angle_min = -22;
+    // static const char balance_angle_max = 22;
+
     int16_t ax, ay, az, gx, gy, gz;
 
 #ifdef MOTOR_SERIAL_PLOTTER
@@ -116,13 +126,13 @@ void BalanceCar()
         speed_filter = speed_filter_old * 0.7 + car_speed * 0.3;
         speed_filter_old = speed_filter;
 
-        // use PID controller to compute the input needed to hit our target speed
+        // compute the input needed to hit our target speed
         car_speed_integeral += speed_filter;
         car_speed_integeral += -setting_car_speed;
         car_speed_integeral = constrain(car_speed_integeral, -3000, 3000);
         speed_control_output = -kp_speed * speed_filter - ki_speed * car_speed_integeral;
 
-        // use PID controller to compute how much input we need to turn left/right
+        // correct for yaw based on a kd_turn fraction of gyro_z
         rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
     }
 
@@ -147,25 +157,31 @@ void BalanceCar()
 #endif
 
 #ifdef WEB_SERVER
-    if (wsServer.connectedClients(0) > 0)
+    static uint8_t k = 0;
+    if (k == plot.prescaler)
     {
-        float plotData[13];
+        k = 0;
 
-        plotData[0] = kalmanfilter.angle - angle_zero;
-        plotData[1] = kalmanfilter.Gyro_x - angular_velocity_zero;
-        plotData[2] = ax;
-        plotData[3] = ay;
-        plotData[4] = az;
-        plotData[5] = gx;
-        plotData[6] = gy;
-        plotData[7] = gz;
-        plotData[8] = 0;
-        plotData[9] = 0;
-        plotData[10] = 0;
-        plotData[11] = pwm_left / 255.0;
-        plotData[12] = pwm_right / 255.0;
-        wsServer.sendBIN(0, (uint8_t *)plotData, sizeof(plotData));
+        if (wsServer.connectedClients(0) > 0 && plot.enable)
+        {
+            float plotData[12];
+
+            plotData[0] = kalmanfilter.angle - angle_zero;
+            plotData[1] = kalmanfilter.Gyro_x - angular_velocity_zero;
+            plotData[2] = ax;
+            plotData[3] = ay;
+            plotData[4] = az;
+            plotData[5] = gx;
+            plotData[6] = gy;
+            plotData[7] = gz;
+            plotData[8] = encoder_count_left_a;
+            plotData[9] = encoder_count_right_a;
+            plotData[10] = pwm_left / 255.0;
+            plotData[11] = pwm_right / 255.0;
+            wsServer.sendBIN(0, (uint8_t *)plotData, sizeof(plotData));
+        }
     }
+    k++;
 #endif
 
 #ifdef MOTOR_SERIAL_PLOTTER
@@ -222,8 +238,65 @@ void BalanceCar()
 #endif // MPU6050
 }
 
+#ifdef WEB_SERVER
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
+{
+    switch (type)
+    {
+    case WStype_DISCONNECTED:
+        DB_PRINTF("[%u] Disconnected!\n", num);
+        break;
+
+    case WStype_CONNECTED:
+    {
+        IPAddress ip = wsServer.remoteIP(num);
+        DB_PRINTF("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+        //        sendConfigurationData(num);
+        break;
+    }
+
+    case WStype_TEXT:
+    {
+        char *data = (char *)payload;
+        DB_PRINTF("[%u] get Text: %s\n", num, data);
+
+        switch (data[0])
+        {
+        case 's':
+            switch (data[1])
+            {
+            case 't':
+                plot.enable = true;
+                break;
+            case 'p':
+                plot.enable = false;
+                break;
+            case 'r':
+                plot.prescaler = atoi(data + 2);
+                break;
+            }
+        }
+        break;
+    }
+
+    case WStype_BIN:
+    {
+        DB_PRINTF("[%u] get binary length: %u\n", num, length);
+        break;
+    }
+    default:
+        break;
+    }
+}
+#endif // WEB_SERVER
+
 void BalanceDriveController_Setup(Preferences &preferences)
 {
+#ifdef WEB_SERVER
+    wsServer.begin();
+    wsServer.onEvent(webSocketEvent);
+#endif // WEB_SERVER
+
 #ifdef MPU6050
     Wire.begin();
     imu.initialize();
@@ -273,14 +346,14 @@ void BalanceDriveController_Setup(Preferences &preferences)
 #endif
 }
 
-#ifdef WEB_SERVER
-void BalanceDriveController_Loop(WebSocketsServer &wsServer)
-#else
-void BalanceDriveController_Loop();
-#endif
+void BalanceDriveController_Loop()
 {
     static unsigned long lastTime = 0;
     unsigned long currentTime = millis();
+
+#ifdef WEB_SERVER
+    wsServer.loop();
+#endif // WEB_SERVER
 
     // only run every 5ms
     if ((currentTime - lastTime) < 5)
@@ -294,5 +367,5 @@ void BalanceDriveController_Loop();
 #endif
     lastTime = currentTime;
 
-    BalanceCar(wsServer);
+    BalanceCar();
 }

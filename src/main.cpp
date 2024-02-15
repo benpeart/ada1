@@ -6,7 +6,6 @@
 #ifdef WEB_SERVER
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <WebSocketsServer.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <SPIFFS.h>
@@ -16,7 +15,6 @@ char robotName[63] = "ada";
 const char *http_username = "admin";
 const char *http_password = "admin";
 AsyncWebServer httpServer(80);
-WebSocketsServer wsServer = WebSocketsServer(81);
 #endif // WEB_SERVER
 
 // -- EEPROM
@@ -74,16 +72,16 @@ void setup()
 
   // Connect to Wifi and setup OTA if known Wifi network cannot be found
   boolean wifiConnected = 0;
-//  if (preferences.getUInt("wifi_mode", 0) == 1)
+  //  if (preferences.getUInt("wifi_mode", 0) == 1)
   {
     char ssid[63] = "IOT";
-    char key[63] = "";
+    char password[63] = "";
     preferences.getBytes("wifi_ssid", ssid, sizeof(ssid));
-    preferences.getBytes("wifi_key", key, sizeof(key));
+    preferences.getBytes("wifi_key", password, sizeof(password));
 
     DB_PRINTF("Connecting to '%s'\n", ssid);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, key);
+    WiFi.begin(ssid, password);
     if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
     {
       DB_PRINT("Connected to WiFi with IP address: ");
@@ -126,6 +124,7 @@ void setup()
     else if (error == OTA_CONNECT_ERROR) DB_PRINTLN("Connect Failed");
     else if (error == OTA_RECEIVE_ERROR) DB_PRINTLN("Receive Failed");
     else if (error == OTA_END_ERROR) DB_PRINTLN("End Failed"); });
+
   ArduinoOTA.begin();
 
   // Start DNS server
@@ -150,9 +149,6 @@ void setup()
   httpServer.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
   httpServer.begin();
 
-  wsServer.begin();
-  //  wsServer.onEvent(webSocketEvent);
-
   MDNS.addService("http", "tcp", 80);
   MDNS.addService("ws", "tcp", 81);
 #endif // WEB_SERVER
@@ -173,7 +169,6 @@ void loop()
 {
 #ifdef WEB_SERVER
   ArduinoOTA.handle();
-  wsServer.loop();
 #endif
 
 #ifdef XBOX_CONTROLLER
@@ -237,11 +232,7 @@ void loop()
 #endif
 
 #ifdef BALANCE_DRIVE_CONTROLLER
-#ifdef WEB_SERVER
-  BalanceDriveController_Loop(wsServer);
-#else
   BalanceDriveController_Loop();
-#endif // WEB_SERVER
 #endif // BALANCE_DRIVE_CONTROLLER
 
 #ifdef DEBUG

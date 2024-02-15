@@ -12,12 +12,6 @@ extern int setting_car_speed;
 extern int setting_turn_speed;
 
 void BalanceDriveController_Setup(Preferences &preferences);
-
-#ifdef WEB_SERVER
-#include <WebSocketsServer.h>
-void BalanceDriveController_Loop(WebSocketsServer &wsServer);
-#else
 void BalanceDriveController_Loop();
-#endif
 
 #endif // BalanceDriveController_h

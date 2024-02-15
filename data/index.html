@@ -1,44 +1,39 @@
-<!DOCTYPE HTML><html>
+<!DOCTYPE html>
+<html>
 <head>
-  <title>Ada Web Server</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
-  <link rel="stylesheet" type="text/css" href="style.css">
-  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.2/css/all.css" integrity="sha384-fnmOCqbTlWIlj8LyTjo7mOUStjsKC4pOpQbqyi7RrhN7udi9RwhKkMHpvLbHG9Sr" crossorigin="anonymous">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/107/three.min.js"></script>
+    <title>Ada, a friendly balancing robot</title>
+    <style>
+        ul {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #333;
+        }
+
+        li {
+            float: left;
+        }
+
+        li a {
+            display: block;
+            color: white;
+            text-align: center;
+            padding: 14px 16px;
+            text-decoration: none;
+        }
+
+        li a:hover {
+            background-color: #111;
+        }
+    </style>
 </head>
 <body>
-  <div class="topnav">
-    <h1><i class="far fa-compass"></i> Ada <i class="far fa-compass"></i></h1>
-  </div>
-  <div class="content">
-    <div class="cards">
-      <div class="card">
-        <p class="card-title">GYROSCOPE</p>
-        <p><span class="reading">X: <span id="gyroX"></span> rad</span></p>
-        <p><span class="reading">Y: <span id="gyroY"></span> rad</span></p>
-        <p><span class="reading">Z: <span id="gyroZ"></span> rad</span></p>
-      </div>
-      <div class="card">
-        <p class="card-title">ACCELEROMETER</p>
-        <p><span class="reading">X: <span id="accX"></span> ms<sup>2</sup></span></p>
-        <p><span class="reading">Y: <span id="accY"></span> ms<sup>2</sup></span></p>
-        <p><span class="reading">Z: <span id="accZ"></span> ms<sup>2</sup></span></p>
-      </div>
-      <div class="card">
-        <p class="card-title">TEMPERATURE</p>
-        <p><span class="reading"><span id="temp"></span> &deg;C</span></p>
-        <p class="card-title">3D ANIMATION</p>
-        <button id="reset" onclick="resetPosition(this)">RESET POSITION</button>
-        <button id="resetX" onclick="resetPosition(this)">X</button>
-        <button id="resetY" onclick="resetPosition(this)">Y</button>
-        <button id="resetZ" onclick="resetPosition(this)">Z</button>
-      </div>
-    </div>
-    <div class="cube-content">
-      <div id="3Dcube"></div>
-    </div>
-  </div>
-<script src="script.js"></script>
+  <img src="https://raw.githubusercontent.com/benpeart/ada/main/images/_2174df76-0215-4122-abec-6b94d869bbaf.jpg" alt="Image from GitHub">
+  <ul>
+        <li><a href="tune.html">Tune</a></li>
+        <li><a href="upgrade.html">Upgrade</a></li>
+        <li><a href="credits.html">Credits</a></li>
+    </ul>
 </body>
 </html>
