@@ -8,6 +8,7 @@
 #include "I2Cdev.h"
 #include <MPU6050.h>
 #include "Wire.h"
+#include <PID_v1.h>
 #endif // MPU6050
 
 #ifdef MOTOR_DRIVER
@@ -27,7 +28,7 @@ struct
     uint8_t prescaler = 4;
 } plot;
 
-#endif
+#endif // WEB_SERVER
 
 #ifdef MPU6050
 MPU6050_Base imu;
@@ -36,14 +37,20 @@ KalmanFilter kalmanfilter;
 // Kalman Filter parameters
 float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 
-// PID parameters
-float kp_balance = 55, kd_balance = 0.75;
-float kp_speed = 10, ki_speed = 0.26;
-float kp_turn = 2.5, kd_turn = 0.5;
-
 // MPU6050 calibration parameters
 float angle_zero = -0.7f;            // x axle angle calibration
 float angular_velocity_zero = -4.1f; // x axle angular velocity calibration
+
+// Define PID variables
+#define PID_SAMPLE_TIME  5
+float PID_Balance_Setpoint = 0, PID_Balance_Input = 0, PID_Balance_Output = 0;
+
+// Define the aggressive and conservative Tuning Parameters
+float PID_Balance_Kp = 4, PID_Balance_Ki = 0.25, PID_Balance_Kd = 1;
+//float PID_Balance_Kp = 1, PID_Balance_Ki = 0.05, PID_Balance_Kd = 0.25;
+
+// Specify the links and initial tuning parameters
+PID PID_Balance(&PID_Balance_Input, &PID_Balance_Output, &PID_Balance_Setpoint, PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd, DIRECT);
 #endif
 
 // Rotary encoder state
@@ -75,10 +82,27 @@ void IRAM_ATTR encoderCountLeftA()
         encoder_count_left_a++;
 }
 
-void BalanceCar()
+void BalanceCar_Loop()
 {
+    // only run every PID_SAMPLERATE ms
+    static unsigned long lastTime = 0;
+    unsigned long currentTime = millis();
+
+    if ((currentTime - lastTime) < PID_SAMPLE_TIME)
+        return;
+#ifdef ELAPSED_TIME_SERIAL_PLOTTER
+    SerialPlotterOutput = true;
+    DB_PRINT("ElapsedTime:");
+    DB_PRINT(currentTime - lastTime);
+    DB_PRINT(",");
+#endif
+    lastTime = currentTime;
+
 #ifdef MPU6050
-    static int speed_control_period_count = 0;
+
+    static float pwm_left = 0;
+    static float pwm_right = 0;
+#ifdef SPEED
     static int encoder_left_pulse_num_speed = 0;
     static int encoder_right_pulse_num_speed = 0;
 
@@ -88,14 +112,10 @@ void BalanceCar()
     static float speed_filter = 0;
     static float car_speed_integeral = 0;
     static float speed_filter_old = 0;
-    static float pwm_left = 0;
-    static float pwm_right = 0;
     // static const char balance_angle_min = -27;
     // static const char balance_angle_max = 27;
     // static const char balance_angle_min = -22;
     // static const char balance_angle_max = 22;
-
-    int16_t ax, ay, az, gx, gy, gz;
 
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
@@ -135,17 +155,20 @@ void BalanceCar()
         // correct for yaw based on a kd_turn fraction of gyro_z
         rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
     }
+#endif // SPEED
 
-    // read the IMU and compute use a Kalman Filter to compute a filtered angle
+    // read the IMU and compute use a Kalman Filter to compute a filtered angle for balance
+    int16_t ax, ay, az, gx, gy, gz;
     imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
 
-    // use PID controller to compute the input we need to balance
-    float balance_control_output = kp_balance * (kalmanfilter.angle - angle_zero) + kd_balance * (kalmanfilter.Gyro_x - angular_velocity_zero);
+    // calculate the correction needed to balanced
+    PID_Balance_Input = kalmanfilter.angle - angle_zero;
+    PID_Balance.Compute();
 
     // final motor output is combination of inputs for balance - speed +/- rotation
-    pwm_left = balance_control_output - speed_control_output - rotation_control_output;
-    pwm_right = balance_control_output - speed_control_output + rotation_control_output;
+    pwm_left = -PID_Balance_Output * 10;  // - speed_control_output - rotation_control_output;
+    pwm_right = -PID_Balance_Output * 10; // - speed_control_output + rotation_control_output;
     pwm_left = constrain(pwm_left, -255, 255);
     pwm_right = constrain(pwm_right, -255, 255);
 
@@ -164,20 +187,22 @@ void BalanceCar()
 
         if (wsServer.connectedClients(0) > 0 && plot.enable)
         {
-            float plotData[12];
+            float plotData[14];
 
-            plotData[0] = kalmanfilter.angle - angle_zero;
-            plotData[1] = kalmanfilter.Gyro_x - angular_velocity_zero;
-            plotData[2] = ax;
-            plotData[3] = ay;
-            plotData[4] = az;
-            plotData[5] = gx;
-            plotData[6] = gy;
-            plotData[7] = gz;
-            plotData[8] = encoder_count_left_a;
-            plotData[9] = encoder_count_right_a;
-            plotData[10] = pwm_left / 255.0;
-            plotData[11] = pwm_right / 255.0;
+            plotData[0] = PID_Balance_Input;
+            plotData[1] = PID_Balance_Output;
+            plotData[2] = kalmanfilter.angle - angle_zero;
+            plotData[3] = kalmanfilter.Gyro_x - angular_velocity_zero;
+            plotData[4] = ax;
+            plotData[5] = ay;
+            plotData[6] = az;
+            plotData[7] = gx;
+            plotData[8] = gy;
+            plotData[9] = gz;
+            plotData[10] = encoder_count_left_a;
+            plotData[11] = encoder_count_right_a;
+            plotData[12] = pwm_left;
+            plotData[13] = pwm_right;
             wsServer.sendBIN(0, (uint8_t *)plotData, sizeof(plotData));
         }
     }
@@ -275,6 +300,24 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
                 plot.prescaler = atoi(data + 2);
                 break;
             }
+            break;
+
+        case 'p':
+            switch (data[1])
+            {
+            case 'p':
+                PID_Balance_Kp = atof(data + 2);
+                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
+                break;
+            case 'i':
+                PID_Balance_Ki = atof(data + 2);
+                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
+                break;
+            case 'd':
+                PID_Balance_Kd = atof(data + 2);
+                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
+                break;
+            }
         }
         break;
     }
@@ -311,6 +354,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     DB_PRINTLN("MPU6050 Found!");
 
     // Load our various calibration values from the 20K of EEPROM
+
     // Kalman Filter parameters
     dt = preferences.getFloat("dt", 0.005);
     Q_angle = preferences.getFloat("Q_angle", 0.001);
@@ -319,18 +363,25 @@ void BalanceDriveController_Setup(Preferences &preferences)
     C_0 = preferences.getFloat("C_0", 1);
     K1 = preferences.getFloat("K1", 0.05);
 
-    // PID parameters
+    // MPU6050 calibration parameters
+    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
+    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
+
+    // Initialize PID parameters and turn the PID on
+    PID_Balance_Setpoint = 0;
+    PID_Balance.SetSampleTime(PID_SAMPLE_TIME);
+    PID_Balance.SetOutputLimits(-255, 255);
+    PID_Balance.SetMode(AUTOMATIC);
+
+#ifdef SPEED
     kp_balance = preferences.getFloat("kp_balance", 55);
     kd_balance = preferences.getFloat("kd_balance", 0.75);
     kp_speed = preferences.getFloat("kp_speed", 10);
     ki_speed = preferences.getFloat("ki_speed", 0.26);
     kp_turn = preferences.getFloat("kp_turn", 2.5);
     kd_turn = preferences.getFloat("kd_turn", 0.5);
-
-    // MPU6050 calibration parameters
-    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
-    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
-#endif                                                                           // MPU6050
+#endif
+#endif // MPU6050
 
 #ifdef MOTOR_DRIVER
     // setup the motors and attach the rotary encoder counters
@@ -348,24 +399,9 @@ void BalanceDriveController_Setup(Preferences &preferences)
 
 void BalanceDriveController_Loop()
 {
-    static unsigned long lastTime = 0;
-    unsigned long currentTime = millis();
-
 #ifdef WEB_SERVER
     wsServer.loop();
 #endif // WEB_SERVER
 
-    // only run every 5ms
-    if ((currentTime - lastTime) < 5)
-        return;
-
-#ifdef ELAPSED_TIME_SERIAL_PLOTTER
-    SerialPlotterOutput = true;
-    DB_PRINT("ElapsedTime:");
-    DB_PRINT(currentTime - lastTime);
-    DB_PRINT(",");
-#endif
-    lastTime = currentTime;
-
-    BalanceCar();
+    BalanceCar_Loop();
 }

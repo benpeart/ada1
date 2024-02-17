@@ -139,8 +139,8 @@ void setup()
 
   httpServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
-    DB_PRINTLN("Loading index.htm");
-    request->send(SPIFFS, "/index.htm"); });
+    DB_PRINTLN("Loading index.html");
+    request->send(SPIFFS, "/index.html"); });
 
   httpServer.serveStatic("/", SPIFFS, "/");
   httpServer.onNotFound([](AsyncWebServerRequest *request)

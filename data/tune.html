@@ -24,8 +24,10 @@
         <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="1">200<br /><br />
 
         Signals to plot<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>Kalman filter angle<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>Corrected gyro X<br />
+        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance input<br />
+        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance output<br />
+        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Kalman filter angle<br />
+        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Corrected gyro X<br />
         <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer X<br />
         <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Y<br />
         <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Z<br />
@@ -43,23 +45,23 @@
         <table>
             <tr>
                 <td>Proportional gain:</td>
-                <td><input type="range" id="pp" oninput=onTune(this); min="0" max="10" value="5" step="0.1"
+                <td><input type="range" id="pp" oninput=onTune(this); min="0" max="5" value="4" step="0.1"
                         class="slider"></td>
-                <td><span id="pp_value">5</span></td>
+                <td><span id="pp_value">1</span></td>
+            </tr>
+
+            <tr>
+                <td>Integral gain:</td>
+                <td><input type="range" id="pi" oninput=onTune(this); min="0" max="1" value="0.25" step="0.01"
+                        class="slider"></td>
+                <td><span id="pa_value">0.05</span></td>
             </tr>
 
             <tr>
                 <td>Derivative gain:</td>
-                <td><input type="range" id="pd" oninput=onTune(this); min="0" max="5" value="2.5" step="0.1"
+                <td><input type="range" id="pd" oninput=onTune(this); min="0" max="2" value="1" step="0.01"
                         class="slider"></td>
-                <td><span id="pd_value">2.5</span></td>
-            </tr>
-
-            <tr>
-                <td>Maximum angle:</td>
-                <td><input type="range" id="pa" oninput=onTune(this); min="." max="50" value="25" step="0.1"
-                        class="slider"></td>
-                <td><span id="pa_value">25</span></td>
+                <td><span id="pd_value">0.25</span></td>
             </tr>
         </table>
     </fieldset>
@@ -96,82 +98,107 @@
         }
     }
 
-    var nSignal = 12;
     const canvas = document.getElementById('myChart');
     const ctx = canvas.getContext('2d');
 
     const data = {
         labels: [],
         datasets: [{
+            label: 'Balance PID input',
+            data: [],
+            tension: 0.4,
+            borderColor: 'rgba(128, 0, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
+            label: 'Balance PID output',
+            data: [],
+            tension: 0.4,
+            borderColor: 'rgba(0, 128, 0, 1)',
+            fill: false,
+            hidden: false,
+        }, {
             label: 'Kalman filter angle',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(0, 0, 0, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Corrected gyro X',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(255, 0, 0, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Accelerometer X',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(0, 255, 0, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Accelerometer Y',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(0, 0, 255, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Accelerometer Z',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(255, 255, 0, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Gyro X',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(0, 255, 255, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Gyro Y',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(255, 0, 255, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Gyro Z',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(192, 192, 192, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Encoder count left',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(192, 192, 192, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Encoder count right',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(128, 128, 128, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Left motor speed',
             data: [],
+            tension: 0.4,
             borderColor: 'rgba(128, 128, 0, 1)',
             fill: false,
             hidden: false,
         }, {
             label: 'Right motor speed',
             data: [],
-            borderColor: 'rgba(0, 128, 0, 1)',
+            tension: 0.4,
+            borderColor: 'rgba(0, 0, 128, 1)',
             fill: false,
             hidden: false,
         },
@@ -257,12 +284,12 @@
             e.value = parseFloat(val);
             document.getElementById(id + '_value').innerHTML = e.value;
         } else {
-            // Binary format is nSignal floats in binary/DataView format
+            // Binary format is array of floats in binary/DataView format
             var d = e.data;
             var dv = new DataView(d);
             let newData = [];
 
-            for (var i = 0; i < nSignal; i++) {
+            for (var i = 0; i < 14; i++) {
                 newData[i] = dv.getFloat32(i * 4, true);
             }
             addData(myChart, newData);
