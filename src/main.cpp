@@ -37,9 +37,7 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 // XboxSeriesXControllerESP32_asukiaaa::Core xboxController;
 #endif
 
-#ifdef BALANCE_DRIVE_CONTROLLER
 #include "BalanceDriveController.h"
-#endif
 
 void setup()
 {
@@ -160,9 +158,7 @@ void setup()
   xboxController.begin();
 #endif
 
-#ifdef BALANCE_DRIVE_CONTROLLER
   BalanceDriveController_Setup(preferences);
-#endif
 }
 
 void loop()
@@ -192,22 +188,31 @@ void loop()
         DB_PRINT(xboxController.xboxNotif.toString());
       }
 #endif
-      // normalize the controller input to the range of 0 to 1 then scale and then scale and shift it to the max speed range
-      int car_speed_forward = ((float)xboxController.xboxNotif.trigRT / XboxControllerNotificationParser::maxTrig) * SPEED_FORWARD_MAX - SPEED_FORWARD_MAX;
-      int car_speed_reverse = ((float)xboxController.xboxNotif.trigLT / XboxControllerNotificationParser::maxTrig) * SPEED_REVERSE_MAX - SPEED_REVERSE_MAX;
+      // normalize the controller input to the range of 0 to 1 then scale
+      float car_speed_forward = ((float)xboxController.xboxNotif.trigRT / XboxControllerNotificationParser::maxTrig);
+      float car_speed_reverse = ((float)xboxController.xboxNotif.trigLT / XboxControllerNotificationParser::maxTrig);
 
       // subtract the requested reverse speed from the requested forward speed in case both triggers are requesting different values
-      setting_car_speed = car_speed_forward - car_speed_reverse;
+      // the steering is based off the left horizontal joystick
+      float speed = car_speed_forward - car_speed_reverse;
+      float steer = (float)xboxController.xboxNotif.joyLHori / XboxControllerNotificationParser::maxJoy;
+      BalanceDriveController_SetVelocity(speed, steer);
 
-      // the turn speed is based off the left horizontal joystick scaled to the MAX turn speed
-      setting_turn_speed = ((float)xboxController.xboxNotif.joyLHori / XboxControllerNotificationParser::maxJoy) * (TURN_LEFT_MAX - TURN_RIGHT_MAX) - TURN_LEFT_MAX;
+      // The "A" button will tell us to stand up and start to balance
+      if (xboxController.xboxNotif.btnA)
+        BalanceDriveController_SetMode(MODE_STANDING_UP);
+
+      // The 'B' button will tell us to tip over onto the leg and stop balancing
+      if (xboxController.xboxNotif.btnB)
+        BalanceDriveController_SetMode(MODE_PARKING);
+
 #ifdef XBOX_SERIAL_PLOTTER
       SerialPlotterOutput = true;
-      DB_PRINT("setting_turn_speed:");
-      DB_PRINT((float)setting_turn_speed);
+      DB_PRINT("speed:");
+      DB_PRINT(speed);
       DB_PRINT(",");
-      DB_PRINT("setting_car_speed:");
-      DB_PRINT((float)setting_car_speed);
+      DB_PRINT("steer:");
+      DB_PRINT(steer);
       DB_PRINT(",");
 #endif // XBOX_SERIAL_PLOTTER
     }
@@ -217,23 +222,18 @@ void loop()
 #ifdef DEBUG_XBOX_CONTROLLER
     DB_PRINTLN("not connected");
 #endif
-#if 0
-    // This does not appear to be necessary when specifying a controller address.
     // To prevent rebooting when a controller turns on but doesn't connect we could
     // start with an empty address and reboot if failed connections. Once connected, 
     // save the address in preferences (with a WebUI to clear it) and use that without
     // the reboot logic on future boots.
-    if (xboxController.getCountFailedConnection() > 2)
+    if (xboxController.getCountFailedConnection() > 3)
     {
       ESP.restart();
     }
-#endif
   }
 #endif
 
-#ifdef BALANCE_DRIVE_CONTROLLER
   BalanceDriveController_Loop();
-#endif // BALANCE_DRIVE_CONTROLLER
 
 #ifdef DEBUG
   if (SerialPlotterOutput)

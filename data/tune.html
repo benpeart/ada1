@@ -9,6 +9,16 @@
 </head>
 
 <body>
+    <fieldset style="width:400px">
+        <legend>Mode</legend>
+
+        <input type="radio" id="mp" name="mode" onclick=onMode(this); checked>Parked
+        <input type="radio" id="ms" name="mode" onclick=onMode(this);>Standing Up
+        <input type="radio" id="mk" name="mode" onclick=onMode(this);>Parking
+        <input type="radio" id="md" name="mode" onclick=onMode(this);>Driving
+        <input type="radio" id="mf" name="mode" onclick=onMode(this);>Fallen
+    </fieldset><br /><br />
+
     <canvas id="myChart" width="400" height="200"></canvas>
 
     <button name="plotStart" id="st" onclick=onStartStop(this); style="width:80px">Start</button>
@@ -230,6 +240,11 @@
     //
     // Commands to be sent back to the host
     //
+
+    // send mode command to the host
+    var onMode = function (e) {
+        connection.send(e.id);
+    }
 
     // send start/stop command to the host
     var onStartStop = function (e) {

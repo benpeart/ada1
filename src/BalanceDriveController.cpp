@@ -30,36 +30,50 @@ struct
 
 #endif // WEB_SERVER
 
+DriveMode drive_mode = MODE_PARKED;
+float speed;
+float steer;
+
 #ifdef MPU6050
 MPU6050_Base imu;
 KalmanFilter kalmanfilter;
-
-// Kalman Filter parameters
-float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 
 // MPU6050 calibration parameters
 float angle_zero = -0.7f;            // x axle angle calibration
 float angular_velocity_zero = -4.1f; // x axle angular velocity calibration
 
+// Kalman Filter parameters
+float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+
+// The maximum angle we can recover from; anything greater than this we enter MODE_FALLEN
+#define BALANCE_ANGLE_MAX 22
+
+// We're going to use 3 PIDs to control the bot:
+//      PID_Angle keeps the robot balanced at the given angle.
+//      PID_Speed determines the speed and direction of the robot. We will use Proportional On Measurement
+//      PID_Steer determines the direction the robot will turn/drive.
+//
+// The idea behind PID_Speed and PID_Steer is that they ensure the robot smoothly transitions
+// between requested states so that it doesn't fall. They will also let us hold a constant speed and
+// turn rate if/when I add ROS 2 SLAM/Navigation support.
+//
+// The PID_Angle setpoint is set by PID_Speed when balancing/driving.
+
 // Define PID variables
-#define PID_SAMPLE_TIME  5
-float PID_Balance_Setpoint = 0, PID_Balance_Input = 0, PID_Balance_Output = 0;
+#define PID_SAMPLE_TIME 5
 
-// Define the aggressive and conservative Tuning Parameters
-float PID_Balance_Kp = 4, PID_Balance_Ki = 0.25, PID_Balance_Kd = 1;
-//float PID_Balance_Kp = 1, PID_Balance_Ki = 0.05, PID_Balance_Kd = 0.25;
-
-// Specify the links and initial tuning parameters
-PID PID_Balance(&PID_Balance_Input, &PID_Balance_Output, &PID_Balance_Setpoint, PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd, DIRECT);
-#endif
+PID pidAngle(0, 0, 0, 0, 0, 0, DIRECT);         // used to keep the robot balanced
+PID pidSpeed(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our speeds
+PID pidSteer(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our turning
+#endif                                          // MPU6050
 
 // Rotary encoder state
 volatile unsigned long encoder_count_right_a = 0;
 volatile unsigned long encoder_count_left_a = 0;
 
-// Exported so Xbox controller can change them
-int setting_car_speed = 0;
-int setting_turn_speed = 0;
+// pwm_left/right range from +-255.0. motorRight/Left range from +-1.0
+static float pwm_left = 0;
+static float pwm_right = 0;
 
 #ifdef MOTOR_DRIVER
 // Reverse AIN1/AIN2 and BIN1/BIN2 to reverse the direction of the motors
@@ -82,26 +96,163 @@ void IRAM_ATTR encoderCountLeftA()
         encoder_count_left_a++;
 }
 
-void BalanceCar_Loop()
+#ifdef WEB_SERVER
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
-    // only run every PID_SAMPLERATE ms
-    static unsigned long lastTime = 0;
-    unsigned long currentTime = millis();
+    switch (type)
+    {
+    case WStype_DISCONNECTED:
+        DB_PRINTF("[%u] Disconnected!\n", num);
+        break;
 
-    if ((currentTime - lastTime) < PID_SAMPLE_TIME)
-        return;
-#ifdef ELAPSED_TIME_SERIAL_PLOTTER
-    SerialPlotterOutput = true;
-    DB_PRINT("ElapsedTime:");
-    DB_PRINT(currentTime - lastTime);
-    DB_PRINT(",");
-#endif
-    lastTime = currentTime;
+    case WStype_CONNECTED:
+    {
+        IPAddress ip = wsServer.remoteIP(num);
+        DB_PRINTF("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+        //        sendConfigurationData(num);
+        break;
+    }
+
+    case WStype_TEXT:
+    {
+        char *data = (char *)payload;
+        DB_PRINTF("[%u] get Text: %s\n", num, data);
+
+        switch (data[0])
+        {
+        case 'm':
+            switch (data[1])
+            {
+            case 'p':
+                BalanceDriveController_SetMode(MODE_PARKED);
+                break;
+            case 's':
+                BalanceDriveController_SetMode(MODE_STANDING_UP);
+                break;
+            case 'k':
+                BalanceDriveController_SetMode(MODE_PARKING);
+                break;
+            case 'd':
+                BalanceDriveController_SetMode(MODE_DRIVE);
+                break;
+            case 'f':
+                BalanceDriveController_SetMode(MODE_FALLEN);
+                break;
+            }
+            break;
+
+        case 's':
+            switch (data[1])
+            {
+            case 't':
+                plot.enable = true;
+                break;
+            case 'p':
+                plot.enable = false;
+                break;
+            case 'r':
+                plot.prescaler = atoi(data + 2);
+                break;
+            }
+            break;
+
+        case 'p':
+            switch (data[1])
+            {
+            case 'p':
+                pidAngle.SetTunings(atof(data + 2), pidAngle.GetKi(), pidAngle.GetKd());
+                break;
+            case 'i':
+                pidAngle.SetTunings(pidAngle.GetKp(), atof(data + 2), pidAngle.GetKd());
+                break;
+            case 'd':
+                pidAngle.SetTunings(pidAngle.GetKp(), pidAngle.GetKi(), atof(data + 2));
+                break;
+            }
+        }
+        break;
+    }
+
+    case WStype_BIN:
+    {
+        DB_PRINTF("[%u] get binary length: %u\n", num, length);
+        break;
+    }
+    default:
+        break;
+    }
+}
+#endif // WEB_SERVER
+
+void BalanceDriveController_Setup(Preferences &preferences)
+{
+#ifdef WEB_SERVER
+    wsServer.begin();
+    wsServer.onEvent(webSocketEvent);
+#endif // WEB_SERVER
 
 #ifdef MPU6050
+    Wire.begin();
+    imu.initialize();
+    if (!imu.testConnection())
+    {
+        DB_PRINTLN("Failed to find MPU6050 chip");
+        while (1)
+        {
+            delay(10);
+        }
+    }
+    DB_PRINTLN("MPU6050 Found!");
 
-    static float pwm_left = 0;
-    static float pwm_right = 0;
+    // Load our various calibration values from the 20K of EEPROM
+
+    // Kalman Filter parameters
+    dt = preferences.getFloat("dt", 0.005);
+    Q_angle = preferences.getFloat("Q_angle", 0.001);
+    Q_gyro = preferences.getFloat("Q_gyro", 0.005);
+    R_angle = preferences.getFloat("R_angle", 0.5);
+    C_0 = preferences.getFloat("C_0", 1);
+    K1 = preferences.getFloat("K1", 0.05);
+
+    // MPU6050 calibration parameters
+    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
+    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
+
+    // Initialize PID parameters and turn the PID on
+    pidAngle.Setpoint = 0;
+    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 4.0),
+                        preferences.getFloat("Angle_ki", 0.25),
+                        preferences.getFloat("Angle_kd", 1)); // aggressive
+#ifdef CONSERVATIVE
+    pidAngle.SetTunings(preferences.getFloat("Angle__kp", 1.0),
+                        preferences.getFloat("Angle__ki", 0.05),
+                        preferences.getFloat("Angle__kd", 0.25)); // conservative
+#endif
+    pidAngle.SetSampleTime(PID_SAMPLE_TIME);
+    pidAngle.SetOutputLimits(-255, 255);
+    pidAngle.SetMode(MANUAL);
+
+#endif // MPU6050
+
+#ifdef MOTOR_DRIVER
+    // setup the motors and attach the rotary encoder counters
+    // motors.begin();
+    motorLeft.begin();
+    motorRight.begin();
+
+    // setup the motor hall effect sensors we use to detect our speed
+    pinMode(ENCODER_LEFT_A_PIN, INPUT_PULLDOWN);
+    pinMode(ENCODER_RIGHT_A_PIN, INPUT_PULLDOWN);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
+#endif
+}
+
+// calculate the inputs necessary for the motors to fulfull the needed speed, rotation, balance requests
+void UpdateMotors()
+{
+#ifdef MPU6050
+
 #ifdef SPEED
     static int encoder_left_pulse_num_speed = 0;
     static int encoder_right_pulse_num_speed = 0;
@@ -114,8 +265,6 @@ void BalanceCar_Loop()
     static float speed_filter_old = 0;
     // static const char balance_angle_min = -27;
     // static const char balance_angle_max = 27;
-    // static const char balance_angle_min = -22;
-    // static const char balance_angle_max = 22;
 
 #ifdef MOTOR_SERIAL_PLOTTER
     // serial plotter friendly format
@@ -157,28 +306,97 @@ void BalanceCar_Loop()
     }
 #endif // SPEED
 
-    // read the IMU and compute use a Kalman Filter to compute a filtered angle for balance
-    int16_t ax, ay, az, gx, gy, gz;
-    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-    kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
-
-    // calculate the correction needed to balanced
-    PID_Balance_Input = kalmanfilter.angle - angle_zero;
-    PID_Balance.Compute();
-
     // final motor output is combination of inputs for balance - speed +/- rotation
-    pwm_left = -PID_Balance_Output * 10;  // - speed_control_output - rotation_control_output;
-    pwm_right = -PID_Balance_Output * 10; // - speed_control_output + rotation_control_output;
+    pwm_left = -pidAngle.Output * 10;  // - speed_control_output - rotation_control_output;
+    pwm_right = -pidAngle.Output * 10; // - speed_control_output + rotation_control_output;
     pwm_left = constrain(pwm_left, -255, 255);
     pwm_right = constrain(pwm_right, -255, 255);
 
 #ifdef MOTOR_DRIVER
-    // not transitioning modes, just balancing/moving
-    // motors.drive(pwm_left / 255.0, pwm_right / 255.0, 0, false);
     motorLeft.drive(pwm_left / 255.0);
     motorRight.drive(pwm_right / 255.0);
 #endif
 
+#endif // MPU6050
+}
+
+//
+// Compute the angle of the robot and transition to any necessary new state (stood up, parked, or fallen).
+// Update pidAngle and if we are driving and no state changes were detected, update the motors to keep us driving and balancing.
+//
+void BalanceDriveController_Loop()
+{
+#ifdef WEB_SERVER
+    wsServer.loop();
+#endif // WEB_SERVER
+
+    // only run every PID_SAMPLE_TIME ms
+    static unsigned long lastTime = 0;
+    unsigned long currentTime = millis();
+
+    if ((currentTime - lastTime) < PID_SAMPLE_TIME)
+        return;
+#ifdef ELAPSED_TIME_SERIAL_PLOTTER
+    SerialPlotterOutput = true;
+    DB_PRINT("ElapsedTime:");
+    DB_PRINT(currentTime - lastTime);
+    DB_PRINT(",");
+#endif
+    lastTime = currentTime;
+
+#ifdef MPU6050
+    // read the IMU and compute use a Kalman Filter to compute a filtered angle for the robot
+    int16_t ax, ay, az, gx, gy, gz;
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
+
+    // calculate the correction needed to balance
+    pidAngle.Input = kalmanfilter.angle - angle_zero;
+    pidAngle.Compute();
+
+    switch (drive_mode)
+    {
+    case MODE_PARKED:
+        break;
+
+    case MODE_STANDING_UP:
+        // Detect if robot is balanced enough that we can transition to driving.
+        // Ensure we are beyond BALANCE_ANGLE_MAX enough that we don't transition to DRIVE then detect a fall.
+        if (abs(kalmanfilter.angle - angle_zero) < BALANCE_ANGLE_MAX / 2)
+        {
+            BalanceDriveController_SetMode(MODE_DRIVE);
+            break;
+        }
+        break;
+
+    case MODE_DRIVE:
+        // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
+        if (kalmanfilter.angle - angle_zero > BALANCE_ANGLE_MAX)
+        {
+            BalanceDriveController_SetMode(MODE_PARKED);
+            break;
+        }
+
+        // If we exceed BALANCE_ANGLE_MAX in the negative direction, we have FALLEN
+        if (kalmanfilter.angle - angle_zero < -BALANCE_ANGLE_MAX)
+        {
+            BalanceDriveController_SetMode(MODE_FALLEN);
+            break;
+        }
+
+        UpdateMotors();
+        break;
+
+    case MODE_PARKING:
+    case MODE_FALLEN:
+        // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
+        if (kalmanfilter.angle - angle_zero > BALANCE_ANGLE_MAX)
+        {
+            BalanceDriveController_SetMode(MODE_PARKED);
+            break;
+        }
+        break;
+    }
 #ifdef WEB_SERVER
     static uint8_t k = 0;
     if (k == plot.prescaler)
@@ -189,8 +407,8 @@ void BalanceCar_Loop()
         {
             float plotData[14];
 
-            plotData[0] = PID_Balance_Input;
-            plotData[1] = PID_Balance_Output;
+            plotData[0] = pidAngle.Input;
+            plotData[1] = pidAngle.Output;
             plotData[2] = kalmanfilter.angle - angle_zero;
             plotData[3] = kalmanfilter.Gyro_x - angular_velocity_zero;
             plotData[4] = ax;
@@ -260,148 +478,72 @@ void BalanceCar_Loop()
 #endif
 #endif // MOTOR_SERIAL_PLOTTER
 
-#endif // MPU6050
-}
-
-#ifdef WEB_SERVER
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
-{
-    switch (type)
-    {
-    case WStype_DISCONNECTED:
-        DB_PRINTF("[%u] Disconnected!\n", num);
-        break;
-
-    case WStype_CONNECTED:
-    {
-        IPAddress ip = wsServer.remoteIP(num);
-        DB_PRINTF("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-        //        sendConfigurationData(num);
-        break;
-    }
-
-    case WStype_TEXT:
-    {
-        char *data = (char *)payload;
-        DB_PRINTF("[%u] get Text: %s\n", num, data);
-
-        switch (data[0])
-        {
-        case 's':
-            switch (data[1])
-            {
-            case 't':
-                plot.enable = true;
-                break;
-            case 'p':
-                plot.enable = false;
-                break;
-            case 'r':
-                plot.prescaler = atoi(data + 2);
-                break;
-            }
-            break;
-
-        case 'p':
-            switch (data[1])
-            {
-            case 'p':
-                PID_Balance_Kp = atof(data + 2);
-                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
-                break;
-            case 'i':
-                PID_Balance_Ki = atof(data + 2);
-                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
-                break;
-            case 'd':
-                PID_Balance_Kd = atof(data + 2);
-                PID_Balance.SetTunings(PID_Balance_Kp, PID_Balance_Ki, PID_Balance_Kd);
-                break;
-            }
-        }
-        break;
-    }
-
-    case WStype_BIN:
-    {
-        DB_PRINTF("[%u] get binary length: %u\n", num, length);
-        break;
-    }
-    default:
-        break;
-    }
-}
-#endif // WEB_SERVER
-
-void BalanceDriveController_Setup(Preferences &preferences)
-{
-#ifdef WEB_SERVER
-    wsServer.begin();
-    wsServer.onEvent(webSocketEvent);
-#endif // WEB_SERVER
-
-#ifdef MPU6050
-    Wire.begin();
-    imu.initialize();
-    if (!imu.testConnection())
-    {
-        DB_PRINTLN("Failed to find MPU6050 chip");
-        while (1)
-        {
-            delay(10);
-        }
-    }
-    DB_PRINTLN("MPU6050 Found!");
-
-    // Load our various calibration values from the 20K of EEPROM
-
-    // Kalman Filter parameters
-    dt = preferences.getFloat("dt", 0.005);
-    Q_angle = preferences.getFloat("Q_angle", 0.001);
-    Q_gyro = preferences.getFloat("Q_gyro", 0.005);
-    R_angle = preferences.getFloat("R_angle", 0.5);
-    C_0 = preferences.getFloat("C_0", 1);
-    K1 = preferences.getFloat("K1", 0.05);
-
-    // MPU6050 calibration parameters
-    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
-    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
-
-    // Initialize PID parameters and turn the PID on
-    PID_Balance_Setpoint = 0;
-    PID_Balance.SetSampleTime(PID_SAMPLE_TIME);
-    PID_Balance.SetOutputLimits(-255, 255);
-    PID_Balance.SetMode(AUTOMATIC);
-
-#ifdef SPEED
-    kp_balance = preferences.getFloat("kp_balance", 55);
-    kd_balance = preferences.getFloat("kd_balance", 0.75);
-    kp_speed = preferences.getFloat("kp_speed", 10);
-    ki_speed = preferences.getFloat("ki_speed", 0.26);
-    kp_turn = preferences.getFloat("kp_turn", 2.5);
-    kd_turn = preferences.getFloat("kd_turn", 0.5);
 #endif
-#endif // MPU6050
+}
 
+void BalanceDriveController_SetMode(DriveMode newDriveMode)
+{
+    if (newDriveMode == drive_mode)
+        return;
+
+    // prevent invalid transitions
+    if ((drive_mode == MODE_FALLEN) && newDriveMode != MODE_PARKED)
+        return;
+
+    // probably could use a simple state machine here
+    switch (newDriveMode)
+    {
+    case MODE_PARKED: // robot is parked on its leg so it can later stand
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKED");
+        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pwm_left = pwm_right = 0;
 #ifdef MOTOR_DRIVER
-    // setup the motors and attach the rotary encoder counters
-    // motors.begin();
-    motorLeft.begin();
-    motorRight.begin();
-
-    // setup the motor hall effect sensors we use to detect out speed
-    pinMode(ENCODER_LEFT_A_PIN, INPUT_PULLDOWN);
-    pinMode(ENCODER_RIGHT_A_PIN, INPUT_PULLDOWN);
-    attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
+        motorLeft.drive(pwm_left / 255.0);
+        motorRight.drive(pwm_right / 255.0);
 #endif
+        break;
+
+    case MODE_STANDING_UP: // robot is in the process of standing
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_STANDING_UP");
+        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pwm_left = pwm_right = 255;
+#ifdef MOTOR_DRIVER
+        motorLeft.drive(pwm_left / 255.0);
+        motorRight.drive(pwm_right / 255.0);
+#endif
+        break;
+
+    case MODE_PARKING: // robot is in the process of parking
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKING");
+        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pwm_left = pwm_right = -128;
+#ifdef MOTOR_DRIVER
+        motorLeft.drive(pwm_left / 255.0);
+        motorRight.drive(pwm_right / 255.0);
+#endif
+        break;
+
+    case MODE_DRIVE: // robot is balancing and able to be driven
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_DRIVE");
+        pidAngle.SetMode(AUTOMATIC); // we only want the PID running when we're trying to balance
+        break;
+
+    case MODE_FALLEN: // robot has fallen and can't get up
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_FALLEN");
+        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pwm_left = pwm_right = 0;
+#ifdef MOTOR_DRIVER
+        motorLeft.drive(pwm_left / 255.0);
+        motorRight.drive(pwm_right / 255.0);
+#endif
+        break;
+    }
+
+    drive_mode = newDriveMode;
 }
 
-void BalanceDriveController_Loop()
+void BalanceDriveController_SetVelocity(float newSpeed, float newSteer)
 {
-#ifdef WEB_SERVER
-    wsServer.loop();
-#endif // WEB_SERVER
-
-    BalanceCar_Loop();
+    speed = newSpeed;
+    steer = newSteer;
 }
