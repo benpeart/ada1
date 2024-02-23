@@ -6,7 +6,9 @@
 #ifdef WEB_SERVER
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#ifdef ARDUINO_OTA
 #include <ArduinoOTA.h>
+#endif
 #include <ESPmDNS.h>
 #include <SPIFFS.h>
 #include <SPIFFSEditor.h>
@@ -79,6 +81,7 @@ void setup()
 
     DB_PRINTF("Connecting to '%s'\n", ssid);
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname(robotName);
     WiFi.begin(ssid, password);
     if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
     {
@@ -100,6 +103,7 @@ void setup()
   }
 
   // setup for OTA flash updates
+#ifdef ARDUINO_OTA
   ArduinoOTA.setHostname(robotName);
   ArduinoOTA
       .onStart([]()
@@ -124,6 +128,7 @@ void setup()
     else if (error == OTA_END_ERROR) DB_PRINTLN("End Failed"); });
 
   ArduinoOTA.begin();
+#endif // ARDUINO_OTA
 
   // Start DNS server
   if (MDNS.begin(robotName))
@@ -163,7 +168,7 @@ void setup()
 
 void loop()
 {
-#ifdef WEB_SERVER
+#ifdef ARDUINO_OTA
   ArduinoOTA.handle();
 #endif
 

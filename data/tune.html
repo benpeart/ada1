@@ -55,23 +55,23 @@
         <table>
             <tr>
                 <td>Proportional gain:</td>
-                <td><input type="range" id="pp" oninput=onTune(this); min="0" max="5" value="4" step="0.1"
+                <td><input type="range" id="kp" oninput=onTune(this); min="0" max="5" value="4" step="0.1"
                         class="slider"></td>
-                <td><span id="pp_value">1</span></td>
+                <td><span id="kp_value">1</span></td>
             </tr>
 
             <tr>
                 <td>Integral gain:</td>
-                <td><input type="range" id="pi" oninput=onTune(this); min="0" max="1" value="0.25" step="0.01"
+                <td><input type="range" id="ki" oninput=onTune(this); min="0" max="1" value="0.25" step="0.01"
                         class="slider"></td>
-                <td><span id="pa_value">0.05</span></td>
+                <td><span id="ki_value">0.05</span></td>
             </tr>
 
             <tr>
                 <td>Derivative gain:</td>
-                <td><input type="range" id="pd" oninput=onTune(this); min="0" max="2" value="1" step="0.01"
+                <td><input type="range" id="kd" oninput=onTune(this); min="0" max="2" value="1" step="0.01"
                         class="slider"></td>
-                <td><span id="pd_value">0.25</span></td>
+                <td><span id="kd_value">0.25</span></td>
             </tr>
         </table>
     </fieldset>
@@ -291,13 +291,31 @@
 
     connection.onmessage = function (e) {
 
-        // Text message format is id of element (ie '2') followed by the float value to be stored in pg_value
         if (typeof (e.data) == 'string') {
             id = e.data.substr(0, 2);
-            val = e.data.substr(2);
-            e = document.getElementById(id);
-            e.value = parseFloat(val);
-            document.getElementById(id + '_value').innerHTML = e.value;
+
+            switch (id) {
+                // update the robot mode
+                case 'mp':
+                case 'ms':
+                case 'mk':
+                case 'md':
+                case 'mf':
+                    document.getElementById(id).checked = true;
+                    console.log('OnMessage ' + id + ' = checked');
+                    break;
+
+                // Update pidAngle. Message format is id of element followed by the float value to be stored in pg_value
+                case 'kp':
+                case 'ki':
+                case 'kd':
+                    val = parseFloat(e.data.substr(2));
+                    document.getElementById(id).value = val;
+                    document.getElementById(id + '_value').innerHTML = val;
+                    console.log('OnMessage ' + id + ' = ' + val);
+                    break;
+            }
+
         } else {
             // Binary format is array of floats in binary/DataView format
             var d = e.data;

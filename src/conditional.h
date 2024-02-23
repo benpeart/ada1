@@ -3,6 +3,7 @@
 //
 
 #define DEBUG 1
+// #define  ARDUINO_OTA
 #define WEB_SERVER
 #define XBOX_CONTROLLER
 // #define DEBUG_XBOX_CONTROLLER

@@ -65,7 +65,7 @@ float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 
 PID pidAngle(0, 0, 0, 0, 0, 0, DIRECT);         // used to keep the robot balanced
 PID pidSpeed(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our speeds
 PID pidSteer(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our turning
-#endif                                          // MPU6050
+#endif
 
 // Rotary encoder state
 volatile unsigned long encoder_count_right_a = 0;
@@ -84,19 +84,60 @@ Tb6612fng motorLeft(STBY, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
 
 void IRAM_ATTR encoderCountRightA()
 {
-    // put an upper bounds on this while testing
-    if (encoder_count_right_a < 24)
-        encoder_count_right_a++;
+    encoder_count_right_a++;
 }
 
 void IRAM_ATTR encoderCountLeftA()
 {
-    // put an upper bounds on this while testing
-    if (encoder_count_left_a < 24)
-        encoder_count_left_a++;
+    encoder_count_left_a++;
 }
 
 #ifdef WEB_SERVER
+
+void SendDriveMode(uint8_t num)
+{
+    if (wsServer.connectedClients(0) <= 0)
+        return;
+
+    switch (drive_mode)
+    {
+    case MODE_PARKED:
+        wsServer.sendTXT(num, "mp");
+        break;
+
+    case MODE_STANDING_UP:
+        wsServer.sendTXT(num, "ms");
+        break;
+
+    case MODE_PARKING:
+        wsServer.sendTXT(num, "mk");
+        break;
+
+    case MODE_DRIVE:
+        wsServer.sendTXT(num, "md");
+        break;
+
+    case MODE_FALLEN:
+        wsServer.sendTXT(num, "mf");
+        break;
+    }
+}
+
+void SendPID(uint8_t num)
+{
+    char wBuf[63];
+
+    if (wsServer.connectedClients(0) <= 0)
+        return;
+
+    sprintf(wBuf, "kp%.4f", pidAngle.GetKp());
+    wsServer.sendTXT(num, wBuf);
+    sprintf(wBuf, "ki%.4f", pidAngle.GetKi());
+    wsServer.sendTXT(num, wBuf);
+    sprintf(wBuf, "kd%.4f", pidAngle.GetKd());
+    wsServer.sendTXT(num, wBuf);
+}
+
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 {
     switch (type)
@@ -109,7 +150,10 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
         IPAddress ip = wsServer.remoteIP(num);
         DB_PRINTF("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-        //        sendConfigurationData(num);
+
+        // send config data to webSocket client
+        SendDriveMode(num);
+        SendPID(num);
         break;
     }
 
@@ -204,7 +248,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     }
     DB_PRINTLN("MPU6050 Found!");
 
-    // Load our various calibration values from the 20K of EEPROM
+    // Load our various calibration values from the 20K of EEPROM in the ESP32
 
     // Kalman Filter parameters
     dt = preferences.getFloat("dt", 0.005);
@@ -218,7 +262,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
     angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
 
-    // Initialize PID parameters and turn the PID on
+    // Initialize PID parameters
     pidAngle.Setpoint = 0;
     pidAngle.SetTunings(preferences.getFloat("Angle_kp", 4.0),
                         preferences.getFloat("Angle_ki", 0.25),
@@ -239,13 +283,13 @@ void BalanceDriveController_Setup(Preferences &preferences)
     // motors.begin();
     motorLeft.begin();
     motorRight.begin();
+#endif
 
     // setup the motor hall effect sensors we use to detect our speed
     pinMode(ENCODER_LEFT_A_PIN, INPUT_PULLDOWN);
     pinMode(ENCODER_RIGHT_A_PIN, INPUT_PULLDOWN);
     attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A_PIN), encoderCountLeftA, CHANGE);
     attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A_PIN), encoderCountRightA, CHANGE);
-#endif
 }
 
 // calculate the inputs necessary for the motors to fulfull the needed speed, rotation, balance requests
@@ -490,7 +534,6 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
     if ((drive_mode == MODE_FALLEN) && newDriveMode != MODE_PARKED)
         return;
 
-    // probably could use a simple state machine here
     switch (newDriveMode)
     {
     case MODE_PARKED: // robot is parked on its leg so it can later stand
@@ -540,6 +583,9 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
     }
 
     drive_mode = newDriveMode;
+#ifdef WEB_SERVER
+    SendDriveMode(0);
+#endif
 }
 
 void BalanceDriveController_SetVelocity(float newSpeed, float newSteer)
