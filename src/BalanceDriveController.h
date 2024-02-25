@@ -19,7 +19,8 @@ typedef enum
     MODE_STANDING_UP, // robot is in the process of standing
     MODE_PARKING,     // robot is in the process of parking
     MODE_DRIVE,       // robot is balancing and able to be driven
-    MODE_FALLEN       // robot has fallen and can't get up
+    MODE_FALLEN,      // robot has fallen and can't get up
+    MODE_CALIBRATION  // calculate a new angle_zero calibration
 } DriveMode;
 void BalanceDriveController_SetMode(DriveMode newDriveMode);
 

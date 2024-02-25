@@ -70,30 +70,28 @@ void setup()
   // Read robot name
   preferences.getBytes("robot_name", robotName, sizeof(robotName));
 
-  // Connect to Wifi and setup OTA if known Wifi network cannot be found
+  // Connect to Wifi and setup AP if known Wifi network cannot be found
   boolean wifiConnected = 0;
-  //  if (preferences.getUInt("wifi_mode", 0) == 1)
-  {
-    char ssid[63] = "IOT";
-    char password[63] = "";
-    preferences.getBytes("wifi_ssid", ssid, sizeof(ssid));
-    preferences.getBytes("wifi_key", password, sizeof(password));
+  char ssid[63] = "IOT";
+  char password[63] = "";
+  preferences.getBytes("wifi_ssid", ssid, sizeof(ssid));
+  preferences.getBytes("wifi_key", password, sizeof(password));
 
-    DB_PRINTF("Connecting to '%s'\n", ssid);
-    WiFi.mode(WIFI_STA);
-    WiFi.setHostname(robotName);
-    WiFi.begin(ssid, password);
-    if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
-    {
-      DB_PRINT("Connected to WiFi with IP address: ");
-      DB_PRINTLN(WiFi.localIP());
-      wifiConnected = 1;
-    }
-    else
-    {
-      DB_PRINTLN("Could not connect to known WiFi network");
-    }
+  DB_PRINTF("Connecting to '%s'\n", ssid);
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(robotName);
+  WiFi.begin(ssid, password);
+  if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
+  {
+    DB_PRINT("Connected to WiFi with IP address: ");
+    DB_PRINTLN(WiFi.localIP());
+    wifiConnected = 1;
   }
+  else
+  {
+    DB_PRINTLN("Could not connect to known WiFi network");
+  }
+
   if (!wifiConnected)
   {
     DB_PRINTLN("Starting AP...");
@@ -210,6 +208,10 @@ void loop()
       // The 'B' button will tell us to tip over onto the leg and stop balancing
       if (xboxController.xboxNotif.btnB)
         BalanceDriveController_SetMode(MODE_PARKING);
+
+      // The 'Start' button will tell us to start the calibration process
+      if (xboxController.xboxNotif.btnStart)
+        BalanceDriveController_SetMode(MODE_CALIBRATION);
 
 #ifdef XBOX_SERIAL_PLOTTER
       SerialPlotterOutput = true;

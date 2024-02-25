@@ -38,10 +38,6 @@ float steer;
 MPU6050_Base imu;
 KalmanFilter kalmanfilter;
 
-// MPU6050 calibration parameters
-float angle_zero = -0.7f;            // x axle angle calibration
-float angular_velocity_zero = -4.1f; // x axle angular velocity calibration
-
 // Kalman Filter parameters
 float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
 
@@ -120,6 +116,10 @@ void SendDriveMode(uint8_t num)
     case MODE_FALLEN:
         wsServer.sendTXT(num, "mf");
         break;
+
+    case MODE_CALIBRATION:
+        wsServer.sendTXT(num, "mc");
+        break;
     }
 }
 
@@ -182,6 +182,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
             case 'f':
                 BalanceDriveController_SetMode(MODE_FALLEN);
                 break;
+            case 'c':
+                BalanceDriveController_SetMode(MODE_CALIBRATION);
+                break;
             }
             break;
 
@@ -200,19 +203,25 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
             }
             break;
 
-        case 'p':
+        case 'k':
+        {
+            float val = atof(data + 2);
             switch (data[1])
             {
             case 'p':
-                pidAngle.SetTunings(atof(data + 2), pidAngle.GetKi(), pidAngle.GetKd());
+                pidAngle.SetTunings(val, pidAngle.GetKi(), pidAngle.GetKd());
+                DB_PRINTF("Set Kp to [%f]\n", val);
                 break;
             case 'i':
-                pidAngle.SetTunings(pidAngle.GetKp(), atof(data + 2), pidAngle.GetKd());
+                pidAngle.SetTunings(pidAngle.GetKp(), val, pidAngle.GetKd());
+                DB_PRINTF("Set Ki to [%f]\n", val);
                 break;
             case 'd':
-                pidAngle.SetTunings(pidAngle.GetKp(), pidAngle.GetKi(), atof(data + 2));
+                pidAngle.SetTunings(pidAngle.GetKp(), pidAngle.GetKi(), val);
+                DB_PRINTF("Set Kd to [%f]\n", val);
                 break;
             }
+        }
         }
         break;
     }
@@ -258,15 +267,11 @@ void BalanceDriveController_Setup(Preferences &preferences)
     C_0 = preferences.getFloat("C_0", 1);
     K1 = preferences.getFloat("K1", 0.05);
 
-    // MPU6050 calibration parameters
-    angle_zero = preferences.getFloat("angle_zero", -0.7);                       // x axle angle calibration
-    angular_velocity_zero = preferences.getFloat("angular_velocity_zero", -4.1); // x axle angular velocity calibration
-
     // Initialize PID parameters
     pidAngle.Setpoint = 0;
-    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 4.0),
-                        preferences.getFloat("Angle_ki", 0.25),
-                        preferences.getFloat("Angle_kd", 1)); // aggressive
+    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 8.0),
+                        preferences.getFloat("Angle_ki", 1),
+                        preferences.getFloat("Angle_kd", 0.075)); // aggressive
 #ifdef CONSERVATIVE
     pidAngle.SetTunings(preferences.getFloat("Angle__kp", 1.0),
                         preferences.getFloat("Angle__ki", 0.05),
@@ -351,8 +356,8 @@ void UpdateMotors()
 #endif // SPEED
 
     // final motor output is combination of inputs for balance - speed +/- rotation
-    pwm_left = -pidAngle.Output * 10;  // - speed_control_output - rotation_control_output;
-    pwm_right = -pidAngle.Output * 10; // - speed_control_output + rotation_control_output;
+    pwm_left = -pidAngle.Output * 20;  // - speed_control_output - rotation_control_output;
+    pwm_right = -pidAngle.Output * 20; // - speed_control_output + rotation_control_output;
     pwm_left = constrain(pwm_left, -255, 255);
     pwm_right = constrain(pwm_right, -255, 255);
 
@@ -395,7 +400,7 @@ void BalanceDriveController_Loop()
     kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
 
     // calculate the correction needed to balance
-    pidAngle.Input = kalmanfilter.angle - angle_zero;
+    pidAngle.Input = kalmanfilter.angle;
     pidAngle.Compute();
 
     switch (drive_mode)
@@ -406,7 +411,7 @@ void BalanceDriveController_Loop()
     case MODE_STANDING_UP:
         // Detect if robot is balanced enough that we can transition to driving.
         // Ensure we are beyond BALANCE_ANGLE_MAX enough that we don't transition to DRIVE then detect a fall.
-        if (abs(kalmanfilter.angle - angle_zero) < BALANCE_ANGLE_MAX / 2)
+        if (abs(kalmanfilter.angle) < BALANCE_ANGLE_MAX / 2)
         {
             BalanceDriveController_SetMode(MODE_DRIVE);
             break;
@@ -415,14 +420,14 @@ void BalanceDriveController_Loop()
 
     case MODE_DRIVE:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (kalmanfilter.angle - angle_zero > BALANCE_ANGLE_MAX)
+        if (kalmanfilter.angle > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
         }
 
         // If we exceed BALANCE_ANGLE_MAX in the negative direction, we have FALLEN
-        if (kalmanfilter.angle - angle_zero < -BALANCE_ANGLE_MAX)
+        if (kalmanfilter.angle < -BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_FALLEN);
             break;
@@ -434,7 +439,7 @@ void BalanceDriveController_Loop()
     case MODE_PARKING:
     case MODE_FALLEN:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (kalmanfilter.angle - angle_zero > BALANCE_ANGLE_MAX)
+        if (kalmanfilter.angle > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
@@ -453,8 +458,8 @@ void BalanceDriveController_Loop()
 
             plotData[0] = pidAngle.Input;
             plotData[1] = pidAngle.Output;
-            plotData[2] = kalmanfilter.angle - angle_zero;
-            plotData[3] = kalmanfilter.Gyro_x - angular_velocity_zero;
+            plotData[2] = kalmanfilter.angle;
+            plotData[3] = kalmanfilter.Gyro_x;
             plotData[4] = ax;
             plotData[5] = ay;
             plotData[6] = az;
@@ -475,10 +480,10 @@ void BalanceDriveController_Loop()
     // serial plotter friendly format
     SerialPlotterOutput = true;
     DB_PRINT("correctedAngle:");
-    DB_PRINT(kalmanfilter.angle - angle_zero);
+    DB_PRINT(kalmanfilter.angle);
     DB_PRINT(",");
     DB_PRINT("correctedGyro.x:");
-    DB_PRINT(kalmanfilter.Gyro_x - angular_velocity_zero);
+    DB_PRINT(kalmanfilter.Gyro_x);
     DB_PRINT(",");
     DB_PRINT("accel.x:");
     DB_PRINT(ax);
@@ -579,6 +584,24 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
         motorLeft.drive(pwm_left / 255.0);
         motorRight.drive(pwm_right / 255.0);
 #endif
+        break;
+
+    case MODE_CALIBRATION: // calculate a new calibration and store it in the MPU6050
+        // tell the web page we're calibrating then turn off pidAngle and motors just to be sure we aren't moving
+        drive_mode = newDriveMode;
+        SendDriveMode(0);
+        pidAngle.SetMode(MANUAL);
+        pwm_left = pwm_right = 0;
+#ifdef MOTOR_DRIVER
+        motorLeft.drive(pwm_left / 255.0);
+        motorRight.drive(pwm_right / 255.0);
+#endif
+        // now actually run the calibration then switch us to MODE_PARKED
+        DB_PRINTLN("PID tuning - each dot = 100 readings");
+        imu.CalibrateAccel(6);
+        imu.CalibrateGyro(6);
+        DB_PRINTLN(" Calibration complete and stored in MPU6050");
+        newDriveMode = MODE_PARKED;
         break;
     }
 

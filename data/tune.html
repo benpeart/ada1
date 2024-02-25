@@ -9,72 +9,84 @@
 </head>
 
 <body>
-    <fieldset style="width:400px">
-        <legend>Mode</legend>
-
-        <input type="radio" id="mp" name="mode" onclick=onMode(this); checked>Parked
-        <input type="radio" id="ms" name="mode" onclick=onMode(this);>Standing Up
-        <input type="radio" id="mk" name="mode" onclick=onMode(this);>Parking
-        <input type="radio" id="md" name="mode" onclick=onMode(this);>Driving
-        <input type="radio" id="mf" name="mode" onclick=onMode(this);>Fallen
-    </fieldset><br /><br />
-
     <canvas id="myChart" width="400" height="200"></canvas>
 
     <button name="plotStart" id="st" onclick=onStartStop(this); style="width:80px">Start</button>
     <button name="plotStop" id="sp" onclick=onStartStop(this); style="width:80px">Stop</button><br /><br />
 
-    <fieldset style="width:300px">
-        <legend>Plot control</legend>
+    <table>
+        <tr>
+            <td>
+                <fieldset style="width:300px">
+                    <legend>Plot control</legend>
 
-        Sample rate [Hz]:<br />
-        <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="8">25
-        <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="4" checked>50
-        <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="2">100
-        <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="1">200<br /><br />
+                    Sample rate [Hz]:<br />
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="8">25
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="4" checked>50
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="2">100
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="1">200<br /><br />
 
-        Signals to plot<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance input<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance output<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Kalman filter angle<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Corrected gyro X<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer X<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Y<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Z<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro X<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Y<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Z<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count left<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count right<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Left motor speed<br />
-        <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Right motor speed<br />
-    </fieldset><br /><br />
+                    Signals to plot<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance input<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance output<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Kalman filter angle<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Corrected gyro X<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer X<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Y<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Z<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro X<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Y<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Z<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count left<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count right<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Left motor speed<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Right motor speed<br />
+                </fieldset>
+            </td>
 
-    <fieldset style="width:300px">
-        <legend>PID tuning</legend>
-        <table>
-            <tr>
-                <td>Proportional gain:</td>
-                <td><input type="range" id="kp" oninput=onTune(this); min="0" max="5" value="4" step="0.1"
-                        class="slider"></td>
-                <td><span id="kp_value">1</span></td>
-            </tr>
+            <td style="vertical-align: top;">
+                <fieldset style="width:300px">
+                    <legend>PID tuning</legend>
+                    <table>
+                        <tr>
+                            <td>Proportional gain:</td>
+                            <td><input type="range" id="kp" oninput=onTune(this); min="0" max="16" value="4" step="0.1"
+                                    class="slider"></td>
+                            <td><span id="kp_value">1</span></td>
+                        </tr>
 
-            <tr>
-                <td>Integral gain:</td>
-                <td><input type="range" id="ki" oninput=onTune(this); min="0" max="1" value="0.25" step="0.01"
-                        class="slider"></td>
-                <td><span id="ki_value">0.05</span></td>
-            </tr>
+                        <tr>
+                            <td>Integral gain:</td>
+                            <td><input type="range" id="ki" oninput=onTune(this); min="0" max="4" value="0.25"
+                                    step="0.01" class="slider"></td>
+                            <td><span id="ki_value">0.05</span></td>
+                        </tr>
 
-            <tr>
-                <td>Derivative gain:</td>
-                <td><input type="range" id="kd" oninput=onTune(this); min="0" max="2" value="1" step="0.01"
-                        class="slider"></td>
-                <td><span id="kd_value">0.25</span></td>
-            </tr>
-        </table>
-    </fieldset>
+                        <tr>
+                            <td>Derivative gain:</td>
+                            <td><input type="range" id="kd" oninput=onTune(this); min="0" max="4" value="1" step="0.01"
+                                    class="slider"></td>
+                            <td><span id="kd_value">0.25</span></td>
+                        </tr>
+                    </table>
+                </fieldset>
+            </td>
+
+            <td style="vertical-align: top;">
+                <fieldset style="width:300px;">
+                    <legend>Mode</legend>
+
+                    <input type="radio" id="mp" name="mode" onclick=onMode(this); checked>Parked</br>
+                    <input type="radio" id="ms" name="mode" onclick=onMode(this);>Standing Up</br>
+                    <input type="radio" id="mk" name="mode" onclick=onMode(this);>Parking</br>
+                    <input type="radio" id="md" name="mode" onclick=onMode(this);>Driving</br>
+                    <input type="radio" id="mf" name="mode" onclick=onMode(this);>Fallen</br>
+                    <input type="radio" id="mc" name="mode" onclick=onMode(this);>Calibrate</br>
+                </fieldset><br /><br />
+            </td>
+
+        </tr>
+    </table>
 </body>
 
 <script>
@@ -223,13 +235,16 @@
             animation: false, // Disable animation for real-time updates
             scales: {
                 x: {
+                    grid: {
+                        display: false
+                    },
                     ticks: {
                         display: false
                     }
                 }
             }
-        },
-    };
+        }
+    }
 
     // create the chart
     const myChart = new Chart(ctx, config);
@@ -267,8 +282,8 @@
 
     // pass an array of data to be added to each item in the dataset
     function addData(chart, data) {
-        // only show the latest 60 data points in chart
-        if (chart.data.labels.length >= 128) {
+        // only show the latest 256 data points in chart
+        if (chart.data.labels.length >= 256) {
             removeData(chart, false)
         };
         chart.data.labels.push(chart.data.labels.length);
