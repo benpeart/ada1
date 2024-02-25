@@ -6,10 +6,10 @@
 #ifdef WEB_SERVER
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <ESPAsyncWiFiManager.h>
 #ifdef ARDUINO_OTA
 #include <ArduinoOTA.h>
 #endif
-#include <ESPmDNS.h>
 #include <SPIFFS.h>
 #include <SPIFFSEditor.h>
 
@@ -17,6 +17,7 @@ char robotName[63] = "ada";
 const char *http_username = "admin";
 const char *http_password = "admin";
 AsyncWebServer httpServer(80);
+DNSServer dns;
 #endif // WEB_SERVER
 
 // -- EEPROM
@@ -69,35 +70,24 @@ void setup()
 
   // Read robot name
   preferences.getBytes("robot_name", robotName, sizeof(robotName));
-
-  // Connect to Wifi and setup AP if known Wifi network cannot be found
-  boolean wifiConnected = 0;
-  char ssid[63] = "IOT";
-  char password[63] = "";
-  preferences.getBytes("wifi_ssid", ssid, sizeof(ssid));
-  preferences.getBytes("wifi_key", password, sizeof(password));
-
-  DB_PRINTF("Connecting to '%s'\n", ssid);
-  WiFi.mode(WIFI_STA);
   WiFi.setHostname(robotName);
-  WiFi.begin(ssid, password);
+
+  // WiFiManager local intialization. Once its business is done, there is no need to keep it around
+  AsyncWiFiManager wifiManager(&httpServer, &dns);
+  // wifiManager.resetSettings();
+
+  // fetches ssid and pass from eeprom and tries to connect
+  // if it does not connect it starts an access point with the specified name
+  // and goes into a blocking loop awaiting configuration
+  wifiManager.autoConnect(robotName);
   if (!(WiFi.waitForConnectResult() != WL_CONNECTED))
   {
     DB_PRINT("Connected to WiFi with IP address: ");
     DB_PRINTLN(WiFi.localIP());
-    wifiConnected = 1;
   }
   else
   {
     DB_PRINTLN("Could not connect to known WiFi network");
-  }
-
-  if (!wifiConnected)
-  {
-    DB_PRINTLN("Starting AP...");
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(robotName, "turboturbo");
-    DB_PRINTF("AP named '%s' started, IP address: %s\n", WiFi.softAPSSID(), WiFi.softAPIP());
   }
 
   // setup for OTA flash updates
@@ -128,16 +118,6 @@ void setup()
   ArduinoOTA.begin();
 #endif // ARDUINO_OTA
 
-  // Start DNS server
-  if (MDNS.begin(robotName))
-  {
-    DB_PRINTF("MDNS responder started, name: %s\n", robotName);
-  }
-  else
-  {
-    DB_PRINTLN("Could not start MDNS responder");
-  }
-
   httpServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
     DB_PRINTLN("Loading index.html");
@@ -149,9 +129,6 @@ void setup()
 
   httpServer.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
   httpServer.begin();
-
-  MDNS.addService("http", "tcp", 80);
-  MDNS.addService("ws", "tcp", 81);
 #endif // WEB_SERVER
 
 #ifdef XBOX_CONTROLLER
@@ -230,7 +207,7 @@ void loop()
     DB_PRINTLN("not connected");
 #endif
     // To prevent rebooting when a controller turns on but doesn't connect we could
-    // start with an empty address and reboot if failed connections. Once connected, 
+    // start with an empty address and reboot if failed connections. Once connected,
     // save the address in preferences (with a WebUI to clear it) and use that without
     // the reboot logic on future boots.
     if (xboxController.getCountFailedConnection() > 3)
