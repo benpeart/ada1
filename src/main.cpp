@@ -5,11 +5,9 @@
 
 #ifdef WEB_SERVER
 #include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
 #include <ESPAsyncWiFiManager.h>
-#ifdef ARDUINO_OTA
-#include <ArduinoOTA.h>
-#endif
+#include <ESPAsyncWebServer.h>
+#include <ElegantOTA.h>
 #include <SPIFFS.h>
 #include <SPIFFSEditor.h>
 
@@ -90,34 +88,6 @@ void setup()
     DB_PRINTLN("Could not connect to known WiFi network");
   }
 
-  // setup for OTA flash updates
-#ifdef ARDUINO_OTA
-  ArduinoOTA.setHostname(robotName);
-  ArduinoOTA
-      .onStart([]()
-               {
-    String type;
-    if (ArduinoOTA.getCommand() == U_FLASH)
-      type = "sketch";
-    else // U_SPIFFS
-      type = "filesystem";
-    DB_PRINTLN("Start updating " + type); })
-      .onEnd([]()
-             { DB_PRINTLN("\nEnd"); })
-      .onProgress([](unsigned int progress, unsigned int total)
-                  { DB_PRINTF("Progress: %u%%\r\n", (progress / (total / 100))); })
-      .onError([](ota_error_t error)
-               {
-    DB_PRINTF("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) DB_PRINTLN("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) DB_PRINTLN("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) DB_PRINTLN("Connect Failed");
-    else if (error == OTA_RECEIVE_ERROR) DB_PRINTLN("Receive Failed");
-    else if (error == OTA_END_ERROR) DB_PRINTLN("End Failed"); });
-
-  ArduinoOTA.begin();
-#endif // ARDUINO_OTA
-
   httpServer.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
                 {
     DB_PRINTLN("Loading index.html");
@@ -128,6 +98,7 @@ void setup()
                         { request->send(404, "text/plain", "FileNotFound"); });
 
   httpServer.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
+  ElegantOTA.begin(&httpServer);    // Start ElegantOTA
   httpServer.begin();
 #endif // WEB_SERVER
 
@@ -143,9 +114,7 @@ void setup()
 
 void loop()
 {
-#ifdef ARDUINO_OTA
-  ArduinoOTA.handle();
-#endif
+  ElegantOTA.loop();
 
 #ifdef XBOX_CONTROLLER
   xboxController.onLoop();
