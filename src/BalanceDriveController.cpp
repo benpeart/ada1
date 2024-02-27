@@ -35,7 +35,7 @@ float speed;
 float steer;
 
 #ifdef MPU6050
-MPU6050_Base imu;
+MPU6050_Base mpu;
 KalmanFilter kalmanfilter;
 
 // Kalman Filter parameters
@@ -246,8 +246,8 @@ void BalanceDriveController_Setup(Preferences &preferences)
 
 #ifdef MPU6050
     Wire.begin();
-    imu.initialize();
-    if (!imu.testConnection())
+    mpu.initialize();
+    if (!mpu.testConnection())
     {
         DB_PRINTLN("Failed to find MPU6050 chip");
         while (1)
@@ -269,14 +269,9 @@ void BalanceDriveController_Setup(Preferences &preferences)
 
     // Initialize PID parameters
     pidAngle.Setpoint = 0;
-    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 8.0),
-                        preferences.getFloat("Angle_ki", 1),
-                        preferences.getFloat("Angle_kd", 0.075)); // aggressive
-#ifdef CONSERVATIVE
-    pidAngle.SetTunings(preferences.getFloat("Angle__kp", 1.0),
-                        preferences.getFloat("Angle__ki", 0.05),
-                        preferences.getFloat("Angle__kd", 0.25)); // conservative
-#endif
+    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 21),
+                        preferences.getFloat("Angle_ki", 140),
+                        preferences.getFloat("Angle_kd", 0.8));
     pidAngle.SetSampleTime(PID_SAMPLE_TIME);
     pidAngle.SetOutputLimits(-255, 255);
     pidAngle.SetMode(MANUAL);
@@ -396,7 +391,7 @@ void BalanceDriveController_Loop()
 #ifdef MPU6050
     // read the IMU and compute use a Kalman Filter to compute a filtered angle for the robot
     int16_t ax, ay, az, gx, gy, gz;
-    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
 
     // calculate the correction needed to balance
@@ -598,8 +593,8 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
 #endif
         // now actually run the calibration then switch us to MODE_PARKED
         DB_PRINTLN("PID tuning - each dot = 100 readings");
-        imu.CalibrateAccel(6);
-        imu.CalibrateGyro(6);
+        mpu.CalibrateAccel(6);
+        mpu.CalibrateGyro(6);
         DB_PRINTLN(" Calibration complete and stored in MPU6050");
         newDriveMode = MODE_PARKED;
         break;

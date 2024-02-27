@@ -46,7 +46,7 @@
 </head>
 
 <body>
-    <canvas id="myChart" width="400" height="200"></canvas>
+    <canvas id="lineChart" width="400" height="200"></canvas>
 
     <button name="plotStart" id="st" onclick=onStartStop(this); style="width:80px">Start</button>
     <button name="plotStop" id="sp" onclick=onStartStop(this); style="width:80px">Stop</button><br /><br />
@@ -58,8 +58,8 @@
                     <legend>Plot control</legend>
 
                     Sample rate [Hz]:<br />
-                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="8">25
-                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="4" checked>50
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="8" checked>25
+                    <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="4">50
                     <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="2">100
                     <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="1">200<br /><br />
 
@@ -76,7 +76,7 @@
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Z<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count left<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count right<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Left motor speed<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>Left motor speed<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Right motor speed<br />
                 </fieldset>
             </td>
@@ -87,21 +87,21 @@
                     <table>
                         <tr>
                             <td>Proportional gain:</td>
-                            <td><input type="range" id="kp" oninput=onTune(this); min="0" max="16" value="4" step="0.1"
+                            <td><input type="range" id="kp" oninput=onTune(this); min="0" max="32" value="21" step="0.5"
                                     class="slider"></td>
                             <td><span id="kp_value">1</span></td>
                         </tr>
 
                         <tr>
                             <td>Integral gain:</td>
-                            <td><input type="range" id="ki" oninput=onTune(this); min="0" max="4" value="0.25"
-                                    step="0.01" class="slider"></td>
+                            <td><input type="range" id="ki" oninput=onTune(this); min="0" max="256" value="140" step="2"
+                                    class="slider"></td>
                             <td><span id="ki_value">0.05</span></td>
                         </tr>
 
                         <tr>
                             <td>Derivative gain:</td>
-                            <td><input type="range" id="kd" oninput=onTune(this); min="0" max="4" value="1" step="0.01"
+                            <td><input type="range" id="kd" oninput=onTune(this); min="0" max="4" value="0.8" step="0.1"
                                     class="slider"></td>
                             <td><span id="kd_value">0.25</span></td>
                         </tr>
@@ -131,263 +131,261 @@
         <li><a href="edit">Edit</a></li>
         <li><a href="credits.html">Credits</a></li>
     </ul>
-</body>
+    <script>
 
-<script>
+        //
+        // Chart helper functions
+        //
 
-    //
-    // Chart helper functions
-    //
-
-    // remove the oldest data from each dataset
-    function removeData(chart, update = true) {
-        chart.data.labels.splice(0, 1);
-        chart.data.datasets.forEach((dataset) => {
-            dataset.data.splice(0, 1);
-        });
-        if (update)
-            chart.update();
-    }
-
-    // show or hide the given dataset
-    function setVisibility(chart, index, hidden = false) {
-        chart.getDatasetMeta(index).hidden = hidden;
-    }
-
-    // hide any signals are not to be plotted
-    var PlotOption = function (e) {
-        var plotOptions = document.getElementsByName("plotOption");
-        var plotOptionLength = plotOptions.length;
-
-        for (var i = 0; i < plotOptionLength; i++) {
-            myChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
+        // remove the oldest data from each dataset
+        function removeData(chart, update = true) {
+            chart.data.labels.splice(0, 1);
+            chart.data.datasets.forEach((dataset) => {
+                dataset.data.splice(0, 1);
+            });
+            if (update)
+                chart.update();
         }
-    }
 
-    const canvas = document.getElementById('myChart');
-    const ctx = canvas.getContext('2d');
+        // show or hide the given dataset
+        function setVisibility(chart, index, hidden = false) {
+            chart.getDatasetMeta(index).hidden = hidden;
+        }
 
-    const data = {
-        labels: [],
-        datasets: [{
-            label: 'Balance PID input',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(128, 0, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Balance PID output',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 128, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Kalman filter angle',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 0, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Corrected gyro X',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(255, 0, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Accelerometer X',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 255, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Accelerometer Y',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 0, 255, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Accelerometer Z',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(255, 255, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Gyro X',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 255, 255, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Gyro Y',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(255, 0, 255, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Gyro Z',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(192, 192, 192, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Encoder count left',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(192, 192, 192, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Encoder count right',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(128, 128, 128, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Left motor speed',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(128, 128, 0, 1)',
-            fill: false,
-            hidden: false,
-        }, {
-            label: 'Right motor speed',
-            data: [],
-            tension: 0.4,
-            borderColor: 'rgba(0, 0, 128, 1)',
-            fill: false,
-            hidden: false,
-        },
-        ],
-    }
+        // hide any signals are not to be plotted
+        var PlotOption = function (e) {
+            var plotOptions = document.getElementsByName("plotOption");
+            var plotOptionLength = plotOptions.length;
 
-    const config = {
-        type: 'line',
-        data: data,
-        options: {
-            responsive: true,
-            animation: false, // Disable animation for real-time updates
-            scales: {
-                x: {
-                    grid: {
-                        display: false
-                    },
-                    ticks: {
-                        display: false
+            for (var i = 0; i < plotOptionLength; i++) {
+                lineChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
+            }
+        }
+
+        const canvas = document.getElementById('lineChart');
+        const ctx = canvas.getContext('2d');
+
+        const data = {
+            labels: [],
+            datasets: [{
+                label: 'Balance PID input',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(128, 0, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Balance PID output',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 128, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Kalman filter angle',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 0, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Corrected gyro X',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(255, 0, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Accelerometer X',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 255, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Accelerometer Y',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 0, 255, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Accelerometer Z',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(255, 255, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro X',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 255, 255, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro Y',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(255, 0, 255, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro Z',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(192, 192, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Encoder count left',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(192, 192, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Encoder count right',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(128, 128, 128, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Left motor speed',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(128, 128, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Right motor speed',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 0, 128, 1)',
+                fill: false,
+                hidden: false,
+            },
+            ],
+        }
+
+        const config = {
+            type: 'line',
+            data: data,
+            options: {
+                responsive: true,
+                animation: false, // Disable animation for real-time updates
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            display: false
+                        }
                     }
                 }
             }
         }
-    }
 
-    // create the chart
-    const myChart = new Chart(ctx, config);
+        // create the chart
+        const lineChart = new Chart(ctx, config);
 
-    // initialize the signals to we want to plot based on what is checked
-    PlotOption(this);
+        // initialize the signals to we want to plot based on what is checked
+        PlotOption(this);
 
-    //
-    // Commands to be sent back to the host
-    //
+        //
+        // Commands to be sent back to the host
+        //
 
-    // send mode command to the host
-    var onMode = function (e) {
-        connection.send(e.id);
-    }
-
-    // send start/stop command to the host
-    var onStartStop = function (e) {
-        connection.send(e.id);
-    }
-
-    // send sample rate to the host
-    var onSampleRate = function (e) {
-        connection.send(e.id + e.value);
-    }
-
-    // send update to the host and update slider-value in textfield
-    var onTune = function (e) {
-        // update the associated text
-        document.getElementById(e.id + '_value').innerHTML = e.value;
-
-        // send the tuning value to the the host
-        connection.send(e.id + e.value);
-    }
-
-    // pass an array of data to be added to each item in the dataset
-    function addData(chart, data) {
-        // only show the latest 256 data points in chart
-        if (chart.data.labels.length >= 256) {
-            removeData(chart, false)
-        };
-        chart.data.labels.push(chart.data.labels.length);
-        chart.data.datasets.forEach((dataset, index) => {
-            dataset.data.push(data[index]);
-        });
-        chart.update();
-    }
-
-    // open a connection to the host
-    var connection = new WebSocket('ws://' + location.hostname + ':81/', ['arduino']);
-    connection.binaryType = 'arraybuffer';
-
-    connection.onopen = function () {
-    };
-
-    connection.onerror = function (error) {
-        console.log('WebSocket Error ', error);
-    };
-
-    connection.onmessage = function (e) {
-
-        if (typeof (e.data) == 'string') {
-            id = e.data.substr(0, 2);
-
-            switch (id) {
-                // update the robot mode
-                case 'mp':
-                case 'ms':
-                case 'mk':
-                case 'md':
-                case 'mf':
-                    document.getElementById(id).checked = true;
-                    console.log('OnMessage ' + id + ' = checked');
-                    break;
-
-                // Update pidAngle. Message format is id of element followed by the float value to be stored in pg_value
-                case 'kp':
-                case 'ki':
-                case 'kd':
-                    val = parseFloat(e.data.substr(2));
-                    document.getElementById(id).value = val;
-                    document.getElementById(id + '_value').innerHTML = val;
-                    console.log('OnMessage ' + id + ' = ' + val);
-                    break;
-            }
-
-        } else {
-            // Binary format is array of floats in binary/DataView format
-            var d = e.data;
-            var dv = new DataView(d);
-            let newData = [];
-
-            for (var i = 0; i < 14; i++) {
-                newData[i] = dv.getFloat32(i * 4, true);
-            }
-            addData(myChart, newData);
+        // send mode command to the host
+        var onMode = function (e) {
+            connection.send(e.id);
         }
-    };
 
-</script>
+        // send start/stop command to the host
+        var onStartStop = function (e) {
+            connection.send(e.id);
+        }
+
+        // send sample rate to the host
+        var onSampleRate = function (e) {
+            connection.send(e.id + e.value);
+        }
+
+        // send update to the host and update slider-value in textfield
+        var onTune = function (e) {
+            // update the associated text
+            document.getElementById(e.id + '_value').innerHTML = e.value;
+
+            // send the tuning value to the the host
+            connection.send(e.id + e.value);
+        }
+
+        // pass an array of data to be added to each item in the dataset
+        function addData(chart, data) {
+            // only show the latest 256 data points in chart
+            if (chart.data.labels.length >= 256) {
+                removeData(chart, false)
+            };
+            chart.data.labels.push(chart.data.labels.length);
+            chart.data.datasets.forEach((dataset, index) => {
+                dataset.data.push(data[index]);
+            });
+            chart.update();
+        }
+
+        // open a connection to the host
+        var connection = new WebSocket('ws://' + location.hostname + ':81/', ['arduino']);
+        connection.binaryType = 'arraybuffer';
+
+        connection.onopen = function () {
+        };
+
+        connection.onerror = function (error) {
+            console.log('WebSocket Error ', error);
+        };
+
+        connection.onmessage = function (e) {
+
+            if (typeof (e.data) == 'string') {
+                id = e.data.substr(0, 2);
+
+                switch (id) {
+                    // update the robot mode
+                    case 'mp':
+                    case 'ms':
+                    case 'mk':
+                    case 'md':
+                    case 'mf':
+                        document.getElementById(id).checked = true;
+                        console.log('OnMessage ' + id + ' = checked');
+                        break;
+
+                    // Update pidAngle. Message format is id of element followed by the float value to be stored in pg_value
+                    case 'kp':
+                    case 'ki':
+                    case 'kd':
+                        val = parseFloat(e.data.substr(2));
+                        document.getElementById(id).value = val;
+                        document.getElementById(id + '_value').innerHTML = val;
+                        console.log('OnMessage ' + id + ' = ' + val);
+                        break;
+                }
+
+            } else {
+                // Binary format is array of floats in binary/DataView format
+                var d = e.data;
+                var dv = new DataView(d);
+                let newData = [];
+
+                for (var i = 0; i < 14; i++) {
+                    newData[i] = dv.getFloat32(i * 4, true);
+                }
+                addData(lineChart, newData);
+            }
+        };
+    </script>
+</body>
 
 </html>
