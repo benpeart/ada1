@@ -6,7 +6,7 @@
 #ifdef MPU6050
 #include "KalmanFilter.h"
 #include "I2Cdev.h"
-#include <MPU6050.h>
+#include "MPU6050_6Axis_MotionApps20.h"
 #include "Wire.h"
 #include <PID_v1.h>
 #endif // MPU6050
@@ -35,11 +35,16 @@ float speed;
 float steer;
 
 #ifdef MPU6050
-MPU6050_Base mpu;
+MPU6050_6Axis_MotionApps20 mpu;
+uint16_t packetSize;                // expected DMP packet size (default is 42 bytes)
+volatile bool mpuInterrupt = false; // indicates whether MPU interrupt pin has gone high
+
+#ifdef KALMANFILTER
+// Kalman Filter parameters
 KalmanFilter kalmanfilter;
 
-// Kalman Filter parameters
 float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+#endif // KALMANFILTER
 
 // The maximum angle we can recover from; anything greater than this we enter MODE_FALLEN
 #define BALANCE_ANGLE_MAX 22
@@ -56,7 +61,7 @@ float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 
 // The PID_Angle setpoint is set by PID_Speed when balancing/driving.
 
 // Define PID variables
-#define PID_SAMPLE_TIME 5
+#define PID_SAMPLE_TIME 10
 
 PID pidAngle(0, 0, 0, 0, 0, 0, DIRECT);         // used to keep the robot balanced
 PID pidSpeed(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our speeds
@@ -77,6 +82,11 @@ static float pwm_right = 0;
 Tb6612fng motorRight(STBY, AIN1_RIGHT, AIN2_RIGHT, PWMA_RIGHT);
 Tb6612fng motorLeft(STBY, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
 #endif
+
+void IRAM_ATTR dmpDataReady()
+{
+    mpuInterrupt = true;
+}
 
 void IRAM_ATTR encoderCountRightA()
 {
@@ -251,14 +261,40 @@ void BalanceDriveController_Setup(Preferences &preferences)
     {
         DB_PRINTLN("Failed to find MPU6050 chip");
         while (1)
-        {
             delay(10);
-        }
     }
     DB_PRINTLN("MPU6050 Found!");
 
-    // Load our various calibration values from the 20K of EEPROM in the ESP32
+    // configure the MPU6050 Digital Motion Processor (DMP)
+    uint8_t devStatus; // return status after each device operation (0 = success, !0 = error)
+    devStatus = mpu.dmpInitialize();
+    if (devStatus == 0)
+    {
+        // turn on the DMP, now that it's ready
+        DB_PRINTLN("Enabling DMP...");
+        mpu.setDMPEnabled(true);
 
+        // enable interrupt detection
+        DB_PRINTF("Enabling interrupt detection (Arduino external interrupt %d)\n", MPU_INTERRUPT);
+        attachInterrupt(MPU_INTERRUPT, dmpDataReady, RISING);
+        DB_PRINTLN("DMP ready! Waiting for first interrupt...");
+
+        // get expected DMP packet size for later comparison
+        packetSize = mpu.dmpGetFIFOPacketSize();
+        DB_PRINTF("dmpGetFIFOPacketSize = %d\n", packetSize);
+    }
+    else
+    {
+        // ERROR!
+        // 1 = initial memory load failed
+        // 2 = DMP configuration updates failed
+        // (if it's going to break, usually the code will be 1)
+        DB_PRINTF("DMP Initialization failed (code %d)\n", devStatus);
+        while (1)
+            delay(10);
+    }
+
+#ifdef KALMANFILTER
     // Kalman Filter parameters
     dt = preferences.getFloat("dt", 0.005);
     Q_angle = preferences.getFloat("Q_angle", 0.001);
@@ -266,6 +302,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     R_angle = preferences.getFloat("R_angle", 0.5);
     C_0 = preferences.getFloat("C_0", 1);
     K1 = preferences.getFloat("K1", 0.05);
+#endif // KALMANFILTER    
 
     // Initialize PID parameters
     pidAngle.Setpoint = 0;
@@ -351,10 +388,10 @@ void UpdateMotors()
 #endif // SPEED
 
     // final motor output is combination of inputs for balance - speed +/- rotation
-    pwm_left = -pidAngle.Output * 20;  // - speed_control_output - rotation_control_output;
-    pwm_right = -pidAngle.Output * 20; // - speed_control_output + rotation_control_output;
-    pwm_left = constrain(pwm_left, -255, 255);
-    pwm_right = constrain(pwm_right, -255, 255);
+    pwm_left = -pidAngle.Output;  // - speed_control_output - rotation_control_output;
+    pwm_right = -pidAngle.Output; // - speed_control_output + rotation_control_output;
+    //    pwm_left = constrain(pwm_left, -255, 255);
+    //    pwm_right = constrain(pwm_right, -255, 255);
 
 #ifdef MOTOR_DRIVER
     motorLeft.drive(pwm_left / 255.0);
@@ -374,28 +411,62 @@ void BalanceDriveController_Loop()
     wsServer.loop();
 #endif // WEB_SERVER
 
+#ifdef MPU6050
+    uint16_t fifoCount;     // count of all bytes currently in FIFO
+    uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
+    uint8_t fifoBuffer[64]; // FIFO storage buffer
+
+    // orientation/motion vars
+    Quaternion q;                    // [w, x, y, z]         quaternion container
+    VectorFloat gravity;             // [x, y, z]            gravity vector
+    static float ypr[3] = {0, 0, 0}; // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+
+    // If we have new motion processor data, update pidAngle.Input
+    fifoCount = mpu.getFIFOCount();
+    if (mpuInterrupt || fifoCount >= packetSize)
+    {
+        mpuInterrupt = false;
+        mpuIntStatus = mpu.getIntStatus();
+
+        if ((mpuIntStatus & 0x10) || fifoCount == 1024)
+        {
+            mpu.resetFIFO();
+            DB_PRINTLN("FIFO overflow!");
+        }
+        else if (mpuIntStatus & 0x02)
+        {
+            // wait until we have a complete packet
+            while (fifoCount < packetSize)
+                fifoCount = mpu.getFIFOCount();
+
+            mpu.getFIFOBytes(fifoBuffer, packetSize);
+            fifoCount -= packetSize;
+
+            mpu.dmpGetQuaternion(&q, fifoBuffer);      // get value for q
+            mpu.dmpGetGravity(&gravity, &q);           // get value for gravity
+            mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); // get value for ypr
+
+            // given the orientation of the MPU6050, the 'roll' is actually the 'pitch' value we need
+            pidAngle.Input = ypr[2] * 180 / M_PI;      // convert output to degrees
+        }
+    }
+#endif // MPU6050
+
     // only run every PID_SAMPLE_TIME ms
     static unsigned long lastTime = 0;
     unsigned long currentTime = millis();
-
     if ((currentTime - lastTime) < PID_SAMPLE_TIME)
         return;
-#ifdef ELAPSED_TIME_SERIAL_PLOTTER
-    SerialPlotterOutput = true;
-    DB_PRINT("ElapsedTime:");
-    DB_PRINT(currentTime - lastTime);
-    DB_PRINT(",");
-#endif
-    lastTime = currentTime;
 
 #ifdef MPU6050
-    // read the IMU and compute use a Kalman Filter to compute a filtered angle for the robot
+#ifdef KALMANFILTER
+    // read the IMU and compute use a Kalman Filter to compute a filtered angle in degrees for the robot
     int16_t ax, ay, az, gx, gy, gz;
     mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     kalmanfilter.Angle(ax, ay, az, gx, gy, gz, dt, Q_angle, Q_gyro, R_angle, C_0, K1);
+#endif // KALMANFILTER
 
     // calculate the correction needed to balance
-    pidAngle.Input = kalmanfilter.angle;
     pidAngle.Compute();
 
     switch (drive_mode)
@@ -406,7 +477,7 @@ void BalanceDriveController_Loop()
     case MODE_STANDING_UP:
         // Detect if robot is balanced enough that we can transition to driving.
         // Ensure we are beyond BALANCE_ANGLE_MAX enough that we don't transition to DRIVE then detect a fall.
-        if (abs(kalmanfilter.angle) < BALANCE_ANGLE_MAX / 2)
+        if (abs(pidAngle.Input) < BALANCE_ANGLE_MAX / 2)
         {
             BalanceDriveController_SetMode(MODE_DRIVE);
             break;
@@ -415,14 +486,14 @@ void BalanceDriveController_Loop()
 
     case MODE_DRIVE:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (kalmanfilter.angle > BALANCE_ANGLE_MAX)
+        if (pidAngle.Input > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
         }
 
         // If we exceed BALANCE_ANGLE_MAX in the negative direction, we have FALLEN
-        if (kalmanfilter.angle < -BALANCE_ANGLE_MAX)
+        if (pidAngle.Input < -BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_FALLEN);
             break;
@@ -434,11 +505,14 @@ void BalanceDriveController_Loop()
     case MODE_PARKING:
     case MODE_FALLEN:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (kalmanfilter.angle > BALANCE_ANGLE_MAX)
+        if (pidAngle.Input > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
         }
+        break;
+
+    case MODE_CALIBRATION:
         break;
     }
 #ifdef WEB_SERVER
@@ -449,22 +523,27 @@ void BalanceDriveController_Loop()
 
         if (wsServer.connectedClients(0) > 0 && plot.enable)
         {
-            float plotData[14];
+            float plotData[15] = {0};
 
             plotData[0] = pidAngle.Input;
             plotData[1] = pidAngle.Output;
+#ifdef KALMANFILTER
             plotData[2] = kalmanfilter.angle;
             plotData[3] = kalmanfilter.Gyro_x;
-            plotData[4] = ax;
-            plotData[5] = ay;
-            plotData[6] = az;
+#endif // KALMANFILTER
+            plotData[4] = ypr[0] * 180 / M_PI;
+            plotData[5] = ypr[2] * 180 / M_PI; // pitch and roll are reversed due to how the MPU6050
+            plotData[6] = ypr[1] * 180 / M_PI; // is mounted on the breadboard
+#ifdef KALMANFILTER
             plotData[7] = gx;
             plotData[8] = gy;
             plotData[9] = gz;
+#endif
             plotData[10] = encoder_count_left_a;
             plotData[11] = encoder_count_right_a;
             plotData[12] = pwm_left;
             plotData[13] = pwm_right;
+            plotData[14] = currentTime - lastTime;
             wsServer.sendBIN(0, (uint8_t *)plotData, sizeof(plotData));
         }
     }
@@ -475,6 +554,7 @@ void BalanceDriveController_Loop()
     // serial plotter friendly format
     SerialPlotterOutput = true;
     DB_PRINT("correctedAngle:");
+#ifdef KALMANFILTER
     DB_PRINT(kalmanfilter.angle);
     DB_PRINT(",");
     DB_PRINT("correctedGyro.x:");
@@ -497,32 +577,21 @@ void BalanceDriveController_Loop()
     DB_PRINT(",");
     DB_PRINT("gyro.z:");
     DB_PRINT(gz);
+#endif // KALMANFILTER
     DB_PRINT("motorLeft:");
     DB_PRINT(pwm_left / 255.0);
     DB_PRINT(",");
     DB_PRINT("motorRight:");
     DB_PRINT(pwm_right / 255.0);
     DB_PRINT(",");
-#if 0
-    DB_PRINT("angle:");
-    DB_PRINT(kalmanfilter.angle);
+    DB_PRINT("ElapsedTime:");
+    DB_PRINT(currentTime - lastTime);
     DB_PRINT(",");
-    DB_PRINT("gyro.x:");
-    DB_PRINT(kalmanfilter.Gyro_x);
-    DB_PRINT(",");
-    DB_PRINT("balance:");
-    DB_PRINT(balance_control_output);
-    DB_PRINT(",");
-    DB_PRINT("pwm_left:");
-    DB_PRINT(pwm_left);
-    DB_PRINT(",");
-    DB_PRINT("pwm_right:");
-    DB_PRINT(pwm_right);
-    DB_PRINT(",");
-#endif
 #endif // MOTOR_SERIAL_PLOTTER
+#endif // MPU6050
 
-#endif
+    // update our time tracking
+    lastTime = currentTime;
 }
 
 void BalanceDriveController_SetMode(DriveMode newDriveMode)

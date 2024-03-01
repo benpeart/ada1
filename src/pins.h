@@ -6,6 +6,7 @@
 #define AIN1_RIGHT 14
 #define AIN2_RIGHT 12
 #define STBY 27
+#define MPU_INTERRUPT 2
 #define ENCODER_LEFT_A_PIN 5
 #define ENCODER_RIGHT_A_PIN 4
 

@@ -98,7 +98,7 @@ void setup()
                         { request->send(404, "text/plain", "FileNotFound"); });
 
   httpServer.addHandler(new SPIFFSEditor(SPIFFS, http_username, http_password));
-  ElegantOTA.begin(&httpServer);    // Start ElegantOTA
+  ElegantOTA.begin(&httpServer); // Start ElegantOTA
   httpServer.begin();
 #endif // WEB_SERVER
 

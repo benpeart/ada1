@@ -68,9 +68,9 @@
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance output<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Kalman filter angle<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Corrected gyro X<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer X<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Y<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Accelerometer Z<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Yaw<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Pitch<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Roll<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro X<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Y<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Gyro Z<br />
@@ -78,6 +78,7 @@
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Encoder count right<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>Left motor speed<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Right motor speed<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Elapsed time<br />
                 </fieldset>
             </td>
 
@@ -171,7 +172,7 @@
                 label: 'Balance PID input',
                 data: [],
                 tension: 0.4,
-                borderColor: 'rgba(128, 0, 0, 1)',
+                borderColor: 'rgba(0, 0, 128, 1)',
                 fill: false,
                 hidden: false,
             }, {
@@ -185,84 +186,91 @@
                 label: 'Kalman filter angle',
                 data: [],
                 tension: 0.4,
-                borderColor: 'rgba(0, 0, 0, 1)',
+                borderColor: 'rgba(0, 128, 128, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Corrected gyro X',
+                label: 'Corrected Gyro X',
                 data: [],
                 tension: 0.4,
-                borderColor: 'rgba(255, 0, 0, 1)',
+                borderColor: 'rgba(128, 0, 0, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Accelerometer X',
+                label: 'Yaw',
                 data: [],
                 tension: 0.4,
-                borderColor: 'rgba(0, 255, 0, 1)',
+                borderColor: 'rgba(128, 0, 128, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Accelerometer Y',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(0, 0, 255, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Accelerometer Z',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(255, 255, 0, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Gyro X',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(0, 255, 255, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Gyro Y',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(255, 0, 255, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Gyro Z',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(192, 192, 192, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Encoder count left',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(192, 192, 192, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Encoder count right',
-                data: [],
-                tension: 0.4,
-                borderColor: 'rgba(128, 128, 128, 1)',
-                fill: false,
-                hidden: false,
-            }, {
-                label: 'Left motor speed',
+                label: 'Pitch',
                 data: [],
                 tension: 0.4,
                 borderColor: 'rgba(128, 128, 0, 1)',
                 fill: false,
                 hidden: false,
             }, {
+                label: 'Roll',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(128, 128, 128, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro X',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 0, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro Y',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 192, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Gyro Z',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 192, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Encoder count left',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(192, 0, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Encoder count right',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(192, 0, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Left motor speed',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(192, 192, 0, 1)',
+                fill: false,
+                hidden: false,
+            }, {
                 label: 'Right motor speed',
                 data: [],
                 tension: 0.4,
-                borderColor: 'rgba(0, 0, 128, 1)',
+                borderColor: 'rgba(192, 192, 192, 1)',
+                fill: false,
+                hidden: false,
+            }, {
+                label: 'Elapsed time',
+                data: [],
+                tension: 0.4,
+                borderColor: 'rgba(0, 0, 255, 1)',
                 fill: false,
                 hidden: false,
             },
@@ -379,7 +387,7 @@
                 var dv = new DataView(d);
                 let newData = [];
 
-                for (var i = 0; i < 14; i++) {
+                for (var i = 0; i < 15; i++) {
                     newData[i] = dv.getFloat32(i * 4, true);
                 }
                 addData(lineChart, newData);
