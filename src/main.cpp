@@ -42,7 +42,7 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 
 void setup()
 {
-  Serial.begin(230400);
+  Serial.begin(115200);
 
   preferences.begin(PREF_NAMESPACE, false); // false = RW-mode
 
