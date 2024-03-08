@@ -4,7 +4,9 @@
 #include "debug.h"
 
 #ifdef MPU6050
+#ifdef KALMANFILTER
 #include "KalmanFilter.h"
+#endif // KALMANFILTER
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
 #include "Wire.h"
@@ -255,7 +257,6 @@ void BalanceDriveController_Setup(Preferences &preferences)
 #endif // WEB_SERVER
 
 #ifdef MPU6050
-    Wire.begin();
     mpu.initialize();
     if (!mpu.testConnection())
     {

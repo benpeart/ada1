@@ -3,6 +3,10 @@
 #include "debug.h"
 #include <Preferences.h> // for storing settings in the ESP32 EEPROM
 
+#ifdef MPU6050
+#include "Wire.h"
+#endif // MPU6050
+
 #ifdef WEB_SERVER
 #include <AsyncTCP.h>
 #include <ESPAsyncWiFiManager.h>
@@ -43,6 +47,9 @@ XboxSeriesXControllerESP32_asukiaaa::Core xboxController("9c:aa:1b:f2:66:3d");
 void setup()
 {
   Serial.begin(115200);
+#ifdef MPU6050
+  Wire.begin(); // this has to happen _very_ early with the latest (6.5.0) platform
+#endif  
 
   preferences.begin(PREF_NAMESPACE, false); // false = RW-mode
 
