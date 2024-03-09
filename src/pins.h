@@ -1,3 +1,6 @@
+#ifndef PINS_H
+#define PINS_H
+
 // Pins for all motor input and outputs
 #define PWMB_LEFT 33
 #define BIN1_LEFT 26
@@ -15,3 +18,5 @@
 #define JTAG_4_TCK 13
 #define JTAG_6_TDO 15
 #define JTAG_8_TDI 12
+
+#endif // PINS_H

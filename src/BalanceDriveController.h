@@ -1,16 +1,9 @@
 #ifndef BalanceDriveController_h
 #define BalanceDriveController_h
 
-#include <Preferences.h> // for storing settings in the ESP32 EEPROM
-
 // Standard Arduino setup/loop functions. Loop expects to be called on every call to void loop();
-void BalanceDriveController_Setup(Preferences &preferences);
+void BalanceDriveController_Setup();
 void BalanceDriveController_Loop();
-
-#ifdef MPU6050
-// Calibrate the MPU6050 and store the calibration parameters in preferences
-void BalanceDriveController_Calibrate(Preferences &preferences);
-#endif // MPU6050
 
 // Handle state transitions and ensure only valid combinations are made.
 typedef enum

@@ -1,7 +1,7 @@
 #include "conditional.h"
 #include <Arduino.h>
 #include "debug.h"
-#include <Preferences.h> // for storing settings in the ESP32 EEPROM
+#include "main.h"
 
 #ifdef MPU6050
 #include "Wire.h"
@@ -116,7 +116,7 @@ void setup()
   xboxController.begin();
 #endif
 
-  BalanceDriveController_Setup(preferences);
+  BalanceDriveController_Setup();
 }
 
 void loop()

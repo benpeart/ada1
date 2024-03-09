@@ -2,6 +2,7 @@
 #include "BalanceDriveController.h"
 #include "pins.h"
 #include "debug.h"
+#include "main.h"
 
 #ifdef MPU6050
 #ifdef KALMANFILTER
@@ -15,6 +16,49 @@
 
 #ifdef MOTOR_DRIVER
 #include <TB6612FNG.h>
+#else
+class Tb6612fngLedc
+{
+public:
+    Tb6612fngLedc(int pin, int chan, int freq, int range){};
+    void begin(){};
+    void write(float value){};
+};
+
+class Tb6612fngMotor
+{
+public:
+    Tb6612fngMotor(int in1, int in2, int pwm){};
+    Tb6612fngMotor(int in1, int in2, Tb6612fngLedc ledc){};
+    void begin(){};
+
+    // Velocity: -1.0..+1.0. Motor duty cycle with positive/negative direction.
+    void drive(float velocity){};
+
+    // Braking enables low resistance circuit across the motor coil (short).
+    void brake(){};
+
+    // Coasting enables high resistance circuit across the motor coil (standby).
+    void coast(){};
+};
+
+class Tb6612fng
+{
+public:
+    Tb6612fng(int standby, int in1A, int in2A, int pwmA){};
+    Tb6612fng(int standby, int in1A, int in2A, Tb6612fngLedc pwmA){};
+    Tb6612fng(int standby, Tb6612fngMotor *motorA){};
+    Tb6612fng(int standby, int in1A, int in2A, int pwmA, int in1B, int in2B, int pwmB);
+    Tb6612fng(int standby, int in1A, int in2A, Tb6612fngLedc pwmA, int in1B, int in2B, Tb6612fngLedc pwmB){};
+    Tb6612fng(int standby, Tb6612fngMotor *motorA, Tb6612fngMotor *motorB){};
+    ~Tb6612fng(){};
+    void begin(){};
+    void enable(bool value){};
+    void drive(float velocity, int duration = 0, bool stop = true) { drive(velocity, velocity, duration, stop); }
+    void drive(float velocityA, float velocityB, int duration = 0, bool stop = true){};
+    void brake(){};
+    void coast(){};
+};
 #endif // MOTOR_DRIVER
 
 #ifdef WEB_SERVER
@@ -78,12 +122,13 @@ volatile unsigned long encoder_count_left_a = 0;
 static float pwm_left = 0;
 static float pwm_right = 0;
 
-#ifdef MOTOR_DRIVER
+// the time we started trying to stand up
+unsigned long start_prev_time = 0;
+
 // Reverse AIN1/AIN2 and BIN1/BIN2 to reverse the direction of the motors
 // Tb6612fng motors(STBY, AIN1_RIGHT, AIN2_RIGHT, PWMA_RIGHT, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
 Tb6612fng motorRight(STBY, AIN1_RIGHT, AIN2_RIGHT, PWMA_RIGHT);
 Tb6612fng motorLeft(STBY, BIN1_LEFT, BIN2_LEFT, PWMB_LEFT);
-#endif
 
 void IRAM_ATTR dmpDataReady()
 {
@@ -102,7 +147,7 @@ void IRAM_ATTR encoderCountLeftA()
 
 #ifdef WEB_SERVER
 
-void SendDriveMode(uint8_t num)
+void SendDriveMode(uint8_t num = 0)
 {
     if (wsServer.connectedClients(0) <= 0)
         return;
@@ -156,6 +201,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
     case WStype_DISCONNECTED:
         DB_PRINTF("[%u] Disconnected!\n", num);
+        preferences.putFloat("Angle_kp", pidAngle.GetKp());
+        preferences.getFloat("Angle_ki", pidAngle.GetKi());
+        preferences.getFloat("Angle_kd", pidAngle.GetKd());
         break;
 
     case WStype_CONNECTED:
@@ -249,7 +297,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 }
 #endif // WEB_SERVER
 
-void BalanceDriveController_Setup(Preferences &preferences)
+void BalanceDriveController_Setup()
 {
 #ifdef WEB_SERVER
     wsServer.begin();
@@ -303,7 +351,7 @@ void BalanceDriveController_Setup(Preferences &preferences)
     R_angle = preferences.getFloat("R_angle", 0.5);
     C_0 = preferences.getFloat("C_0", 1);
     K1 = preferences.getFloat("K1", 0.05);
-#endif // KALMANFILTER    
+#endif // KALMANFILTER
 
     // Initialize PID parameters
     pidAngle.Setpoint = 0;
@@ -316,12 +364,10 @@ void BalanceDriveController_Setup(Preferences &preferences)
 
 #endif // MPU6050
 
-#ifdef MOTOR_DRIVER
     // setup the motors and attach the rotary encoder counters
     // motors.begin();
     motorLeft.begin();
     motorRight.begin();
-#endif
 
     // setup the motor hall effect sensors we use to detect our speed
     pinMode(ENCODER_LEFT_A_PIN, INPUT_PULLDOWN);
@@ -394,10 +440,8 @@ void UpdateMotors()
     //    pwm_left = constrain(pwm_left, -255, 255);
     //    pwm_right = constrain(pwm_right, -255, 255);
 
-#ifdef MOTOR_DRIVER
     motorLeft.drive(pwm_left / 255.0);
     motorRight.drive(pwm_right / 255.0);
-#endif
 
 #endif // MPU6050
 }
@@ -483,6 +527,12 @@ void BalanceDriveController_Loop()
             BalanceDriveController_SetMode(MODE_DRIVE);
             break;
         }
+
+        // if it's been 2000 ms since we started to stand
+        if (millis() - start_prev_time > 1000)
+        {
+            BalanceDriveController_SetMode(MODE_PARKED);
+        }
         break;
 
     case MODE_DRIVE:
@@ -504,6 +554,20 @@ void BalanceDriveController_Loop()
         break;
 
     case MODE_PARKING:
+        // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
+        if (pidAngle.Input > BALANCE_ANGLE_MAX)
+        {
+            BalanceDriveController_SetMode(MODE_PARKED);
+            break;
+        }
+
+        // if it's been 500 ms since we started to park
+        if (millis() - start_prev_time > 500)
+        {
+            BalanceDriveController_SetMode(MODE_PARKED);
+        }
+        break;
+
     case MODE_FALLEN:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
         if (pidAngle.Input > BALANCE_ANGLE_MAX)
@@ -610,30 +674,35 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKED");
         pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
         pwm_left = pwm_right = 0;
-#ifdef MOTOR_DRIVER
-        motorLeft.drive(pwm_left / 255.0);
-        motorRight.drive(pwm_right / 255.0);
-#endif
+        motorLeft.brake();
+        motorRight.brake();
         break;
 
     case MODE_STANDING_UP: // robot is in the process of standing
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_STANDING_UP");
         pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+
+        // go full speed forward so we can stand up
         pwm_left = pwm_right = 255;
-#ifdef MOTOR_DRIVER
         motorLeft.drive(pwm_left / 255.0);
         motorRight.drive(pwm_right / 255.0);
-#endif
+        start_prev_time = millis();
         break;
 
     case MODE_PARKING: // robot is in the process of parking
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKING");
         pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
-        pwm_left = pwm_right = -128;
-#ifdef MOTOR_DRIVER
+
+        // if we aren't driving, ignore the request to park
+        if (drive_mode != MODE_DRIVE)
+            return;
+
+        // backup so we rest on the foot then hit the brakes
+        pwm_left -= 128;
+        pwm_right -= 128;
         motorLeft.drive(pwm_left / 255.0);
         motorRight.drive(pwm_right / 255.0);
-#endif
+        start_prev_time = millis();
         break;
 
     case MODE_DRIVE: // robot is balancing and able to be driven
@@ -645,22 +714,18 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_FALLEN");
         pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
         pwm_left = pwm_right = 0;
-#ifdef MOTOR_DRIVER
         motorLeft.drive(pwm_left / 255.0);
         motorRight.drive(pwm_right / 255.0);
-#endif
         break;
 
     case MODE_CALIBRATION: // calculate a new calibration and store it in the MPU6050
         // tell the web page we're calibrating then turn off pidAngle and motors just to be sure we aren't moving
         drive_mode = newDriveMode;
-        SendDriveMode(0);
+        SendDriveMode();
         pidAngle.SetMode(MANUAL);
         pwm_left = pwm_right = 0;
-#ifdef MOTOR_DRIVER
         motorLeft.drive(pwm_left / 255.0);
         motorRight.drive(pwm_right / 255.0);
-#endif
         // now actually run the calibration then switch us to MODE_PARKED
         DB_PRINTLN("PID tuning - each dot = 100 readings");
         mpu.CalibrateAccel(6);
@@ -672,7 +737,7 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
 
     drive_mode = newDriveMode;
 #ifdef WEB_SERVER
-    SendDriveMode(0);
+    SendDriveMode();
 #endif
 }
 
