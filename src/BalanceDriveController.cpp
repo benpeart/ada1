@@ -66,6 +66,7 @@ public:
 #include <WebSocketsServer.h>
 
 WebSocketsServer wsServer = WebSocketsServer(81);
+bool settingsChanged = false;
 
 // Plot settings
 struct
@@ -201,9 +202,13 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
     {
     case WStype_DISCONNECTED:
         DB_PRINTF("[%u] Disconnected!\n", num);
-        preferences.putFloat("Angle_kp", pidAngle.GetKp());
-        preferences.getFloat("Angle_ki", pidAngle.GetKi());
-        preferences.getFloat("Angle_kd", pidAngle.GetKd());
+        if (settingsChanged)
+        {
+            preferences.putFloat("Angle_kp", pidAngle.GetKp());
+            preferences.getFloat("Angle_ki", pidAngle.GetKi());
+            preferences.getFloat("Angle_kd", pidAngle.GetKd());
+            settingsChanged = false;
+        }
         break;
 
     case WStype_CONNECTED:
@@ -281,6 +286,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
                 DB_PRINTF("Set Kd to [%f]\n", val);
                 break;
             }
+            settingsChanged = true;
         }
         }
         break;
@@ -528,7 +534,7 @@ void BalanceDriveController_Loop()
             break;
         }
 
-        // if it's been 2000 ms since we started to stand
+        // if it's been 1000 ms since we started to stand
         if (millis() - start_prev_time > 1000)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
@@ -664,7 +670,7 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
     if (newDriveMode == drive_mode)
         return;
 
-    // prevent invalid transitions
+    // prevent invalid transitions while fallen
     if ((drive_mode == MODE_FALLEN) && newDriveMode != MODE_PARKED)
         return;
 
@@ -672,15 +678,19 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
     {
     case MODE_PARKED: // robot is parked on its leg so it can later stand
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKED");
-        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
         pwm_left = pwm_right = 0;
         motorLeft.brake();
         motorRight.brake();
         break;
 
     case MODE_STANDING_UP: // robot is in the process of standing
+        // if we aren't parked, ignore the request to stand up
+        if (drive_mode != MODE_PARKED)
+            return;
+
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_STANDING_UP");
-        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pidAngle.SetMode(AUTOMATIC); // we need the PID running so we can transition smoothly to driving
 
         // go full speed forward so we can stand up
         pwm_left = pwm_right = 255;
@@ -690,12 +700,12 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
         break;
 
     case MODE_PARKING: // robot is in the process of parking
-        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKING");
-        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
-
         // if we aren't driving, ignore the request to park
         if (drive_mode != MODE_DRIVE)
             return;
+
+        DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKING");
+        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
 
         // backup so we rest on the foot then hit the brakes
         pwm_left -= 128;
@@ -712,20 +722,20 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
 
     case MODE_FALLEN: // robot has fallen and can't get up
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_FALLEN");
-        pidAngle.SetMode(MANUAL); // we only want the PID running when we're trying to balance
+        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
         pwm_left = pwm_right = 0;
-        motorLeft.drive(pwm_left / 255.0);
-        motorRight.drive(pwm_right / 255.0);
+        motorLeft.brake();
+        motorRight.brake();
         break;
 
     case MODE_CALIBRATION: // calculate a new calibration and store it in the MPU6050
         // tell the web page we're calibrating then turn off pidAngle and motors just to be sure we aren't moving
         drive_mode = newDriveMode;
         SendDriveMode();
-        pidAngle.SetMode(MANUAL);
+        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
         pwm_left = pwm_right = 0;
-        motorLeft.drive(pwm_left / 255.0);
-        motorRight.drive(pwm_right / 255.0);
+        motorLeft.brake();
+        motorRight.brake();
         // now actually run the calibration then switch us to MODE_PARKED
         DB_PRINTLN("PID tuning - each dot = 100 readings");
         mpu.CalibrateAccel(6);
