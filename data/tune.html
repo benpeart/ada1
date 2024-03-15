@@ -161,6 +161,7 @@
             for (var i = 0; i < plotOptionLength; i++) {
                 lineChart.getDatasetMeta(i).hidden = !plotOptions[i].checked;
             }
+            lineChart.update();
         }
 
         const canvas = document.getElementById('lineChart');

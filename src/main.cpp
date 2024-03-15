@@ -49,7 +49,7 @@ void setup()
   Serial.begin(115200);
 #ifdef MPU6050
   Wire.begin(); // this has to happen _very_ early with the latest (6.5.0) platform
-#endif  
+#endif // MPU6050
 
   preferences.begin(PREF_NAMESPACE, false); // false = RW-mode
 

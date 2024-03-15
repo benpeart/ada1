@@ -205,8 +205,8 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         if (settingsChanged)
         {
             preferences.putFloat("Angle_kp", pidAngle.GetKp());
-            preferences.getFloat("Angle_ki", pidAngle.GetKi());
-            preferences.getFloat("Angle_kd", pidAngle.GetKd());
+            preferences.putFloat("Angle_ki", pidAngle.GetKi());
+            preferences.putFloat("Angle_kd", pidAngle.GetKd());
             settingsChanged = false;
         }
         break;
@@ -400,17 +400,6 @@ void UpdateMotors()
     // static const char balance_angle_min = -27;
     // static const char balance_angle_max = 27;
 
-#ifdef MOTOR_SERIAL_PLOTTER
-    // serial plotter friendly format
-    SerialPlotterOutput = true;
-    DB_PRINT("encoderCountLeft:");
-    DB_PRINT(encoder_count_left_a);
-    DB_PRINT(",");
-    DB_PRINT("encoderCountRight:");
-    DB_PRINT(encoder_count_right_a);
-    DB_PRINT(",");
-#endif
-
     // update the encoder pulse count (speed)
     encoder_left_pulse_num_speed += pwm_left < 0 ? -encoder_count_left_a : encoder_count_left_a;
     encoder_right_pulse_num_speed += pwm_right < 0 ? -encoder_count_right_a : encoder_count_right_a;
@@ -479,7 +468,7 @@ void BalanceDriveController_Loop()
         mpuInterrupt = false;
         mpuIntStatus = mpu.getIntStatus();
 
-        if ((mpuIntStatus & 0x10) || fifoCount == 1024)
+        if ((mpuIntStatus & 0x10) || fifoCount >= 1024)
         {
             mpu.resetFIFO();
             DB_PRINTLN("FIFO overflow!");
@@ -510,6 +499,7 @@ void BalanceDriveController_Loop()
         return;
 
 #ifdef MPU6050
+
 #ifdef KALMANFILTER
     // read the IMU and compute use a Kalman Filter to compute a filtered angle in degrees for the robot
     int16_t ax, ay, az, gx, gy, gz;
@@ -649,6 +639,12 @@ void BalanceDriveController_Loop()
     DB_PRINT("gyro.z:");
     DB_PRINT(gz);
 #endif // KALMANFILTER
+    DB_PRINT("encoderCountLeft:");
+    DB_PRINT(encoder_count_left);
+    DB_PRINT(",");
+    DB_PRINT("encoderCountRight:");
+    DB_PRINT(encoder_count_right);
+    DB_PRINT(",");
     DB_PRINT("motorLeft:");
     DB_PRINT(pwm_left / 255.0);
     DB_PRINT(",");
@@ -659,6 +655,11 @@ void BalanceDriveController_Loop()
     DB_PRINT(currentTime - lastTime);
     DB_PRINT(",");
 #endif // MOTOR_SERIAL_PLOTTER
+
+    // reset the encoder counts now that we've had a chance to use and report them
+    encoder_count_left_a = 0;
+    encoder_count_right_a = 0;
+
 #endif // MPU6050
 
     // update our time tracking
