@@ -78,23 +78,13 @@ struct
 #endif // WEB_SERVER
 
 DriveMode drive_mode = MODE_PARKED;
-float speed;
-float steer;
+float speed;                        // track the requested speed
+float steer;                        // track the requested steer
 
 #ifdef MPU6050
 MPU6050_6Axis_MotionApps20 mpu;
 uint16_t packetSize;                // expected DMP packet size (default is 42 bytes)
 volatile bool mpuInterrupt = false; // indicates whether MPU interrupt pin has gone high
-
-#ifdef KALMANFILTER
-// Kalman Filter parameters
-KalmanFilter kalmanfilter;
-
-float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
-#endif // KALMANFILTER
-
-// The maximum angle we can recover from; anything greater than this we enter MODE_FALLEN
-#define BALANCE_ANGLE_MAX 22
 
 // We're going to use 3 PIDs to control the bot:
 //      PID_Angle keeps the robot balanced at the given angle.
@@ -109,11 +99,35 @@ float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 
 
 // Define PID variables
 #define PID_SAMPLE_TIME 10
+#define MAX_ENCODER_COUNT_PER_MS 4
 
-PID pidAngle(0, 0, 0, 0, 0, 0, DIRECT);         // used to keep the robot balanced
+// The maximum angle we can recover from; anything greater than this we enter MODE_FALLEN
+#define BALANCE_ANGLE_MAX 22
+
+PID pidBalance(0, 0, 0, 0, 0, 0, DIRECT); // used to keep the robot balanced
+
+//#ifdef PIDSPEED
 PID pidSpeed(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our speeds
-PID pidSteer(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our turning
+//#endif // PIDSPEED
+
+//PID pidSteer(0, 0, 0, 0, 0, 0, DIRECT, P_ON_M); // Proportional On Measurement so we don't overshoot our turning
+
+#ifdef ANGLESPEED
+// The maximum angle we can drive
+#define SPEED_ANGLE_MAX 7
+#endif // ANGLESPEED
+
+#ifdef KALMANFILTER
+// Kalman Filter parameters
+KalmanFilter kalmanfilter;
+
+float dt = 0.005, Q_angle = 0.001, Q_gyro = 0.005, R_angle = 0.5, C_0 = 1, K1 = 0.05;
+#endif // KALMANFILTER
+
+#ifdef TUMBLLERSPEED
+int setting_car_speed = 0;
 #endif
+#endif // MPU6050
 
 // Rotary encoder state
 volatile unsigned long encoder_count_right_a = 0;
@@ -188,11 +202,11 @@ void SendPID(uint8_t num)
     if (wsServer.connectedClients(0) <= 0)
         return;
 
-    sprintf(wBuf, "kp%.4f", pidAngle.GetKp());
+    sprintf(wBuf, "kp%.4f", pidBalance.GetKp());
     wsServer.sendTXT(num, wBuf);
-    sprintf(wBuf, "ki%.4f", pidAngle.GetKi());
+    sprintf(wBuf, "ki%.4f", pidBalance.GetKi());
     wsServer.sendTXT(num, wBuf);
-    sprintf(wBuf, "kd%.4f", pidAngle.GetKd());
+    sprintf(wBuf, "kd%.4f", pidBalance.GetKd());
     wsServer.sendTXT(num, wBuf);
 }
 
@@ -204,9 +218,9 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
         DB_PRINTF("[%u] Disconnected!\n", num);
         if (settingsChanged)
         {
-            preferences.putFloat("Angle_kp", pidAngle.GetKp());
-            preferences.putFloat("Angle_ki", pidAngle.GetKi());
-            preferences.putFloat("Angle_kd", pidAngle.GetKd());
+            preferences.putFloat("Angle_kp", pidBalance.GetKp());
+            preferences.putFloat("Angle_ki", pidBalance.GetKi());
+            preferences.putFloat("Angle_kd", pidBalance.GetKd());
             settingsChanged = false;
         }
         break;
@@ -274,15 +288,15 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
             switch (data[1])
             {
             case 'p':
-                pidAngle.SetTunings(val, pidAngle.GetKi(), pidAngle.GetKd());
+                pidBalance.SetTunings(val, pidBalance.GetKi(), pidBalance.GetKd());
                 DB_PRINTF("Set Kp to [%f]\n", val);
                 break;
             case 'i':
-                pidAngle.SetTunings(pidAngle.GetKp(), val, pidAngle.GetKd());
+                pidBalance.SetTunings(pidBalance.GetKp(), val, pidBalance.GetKd());
                 DB_PRINTF("Set Ki to [%f]\n", val);
                 break;
             case 'd':
-                pidAngle.SetTunings(pidAngle.GetKp(), pidAngle.GetKi(), val);
+                pidBalance.SetTunings(pidBalance.GetKp(), pidBalance.GetKi(), val);
                 DB_PRINTF("Set Kd to [%f]\n", val);
                 break;
             }
@@ -360,18 +374,24 @@ void BalanceDriveController_Setup()
 #endif // KALMANFILTER
 
     // Initialize PID parameters
-    pidAngle.Setpoint = 0;
-    pidAngle.SetTunings(preferences.getFloat("Angle_kp", 21),
+    pidBalance.SetTunings(preferences.getFloat("Angle_kp", 21),
                         preferences.getFloat("Angle_ki", 140),
                         preferences.getFloat("Angle_kd", 0.8));
-    pidAngle.SetSampleTime(PID_SAMPLE_TIME);
-    pidAngle.SetOutputLimits(-255, 255);
-    pidAngle.SetMode(MANUAL);
+    pidBalance.SetSampleTime(PID_SAMPLE_TIME);
+    pidBalance.SetOutputLimits(-255, 255);
+    pidBalance.SetMode(MANUAL);
 
+#ifdef PIDSPEED
+    pidSpeed.SetTunings(preferences.getFloat("Speed_kp", 21),
+                        preferences.getFloat("Speed_ki", 140),
+                        preferences.getFloat("Speed_kd", 0.8));
+    pidSpeed.SetSampleTime(PID_SAMPLE_TIME);
+    pidSpeed.SetOutputLimits(-255, 255);
+    pidSpeed.SetMode(MANUAL);
+#endif // PIDSPEED
 #endif // MPU6050
 
     // setup the motors and attach the rotary encoder counters
-    // motors.begin();
     motorLeft.begin();
     motorRight.begin();
 
@@ -387,7 +407,20 @@ void UpdateMotors()
 {
 #ifdef MPU6050
 
-#ifdef SPEED
+#ifdef PIDSPEED
+    // input is a sign corrected average of both encoders
+    pidSpeed.Input = ((pwm_left < 0 ? -encoder_count_left_a : encoder_count_left_a) +
+                      (pwm_right < 0 ? -encoder_count_right_a : encoder_count_right_a)) *
+                     0.5;
+    pidSpeed.Compute();
+#endif
+#ifdef TUMBLLERSPEED
+    // Setting PID parameters
+
+    static double kp_balance = 55, kd_balance = 0.75;
+    static double kp_speed = 10, ki_speed = 0.26;
+    static double kp_turn = 2.5, kd_turn = 0.5;
+
     static int encoder_left_pulse_num_speed = 0;
     static int encoder_right_pulse_num_speed = 0;
 
@@ -395,6 +428,7 @@ void UpdateMotors()
     static float speed_control_output = 0;
     static float rotation_control_output = 0;
     static float speed_filter = 0;
+    static int speed_control_period_count = 0;
     static float car_speed_integeral = 0;
     static float speed_filter_old = 0;
     // static const char balance_angle_min = -27;
@@ -425,15 +459,25 @@ void UpdateMotors()
         speed_control_output = -kp_speed * speed_filter - ki_speed * car_speed_integeral;
 
         // correct for yaw based on a kd_turn fraction of gyro_z
-        rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
+        //        rotation_control_output = setting_turn_speed + kd_turn * kalmanfilter.Gyro_z;
     }
 #endif // SPEED
 
     // final motor output is combination of inputs for balance - speed +/- rotation
-    pwm_left = -pidAngle.Output;  // - speed_control_output - rotation_control_output;
-    pwm_right = -pidAngle.Output; // - speed_control_output + rotation_control_output;
-    //    pwm_left = constrain(pwm_left, -255, 255);
-    //    pwm_right = constrain(pwm_right, -255, 255);
+#ifdef ANGLESPEED
+    pwm_left = -pidBalance.Output;  // - rotation_control_output;
+    pwm_right = -pidBalance.Output; // + rotation_control_output;
+#endif                            // ANGLESPEED
+#ifdef PIDSPEED
+    pwm_left = -pidBalance.Output - pidSpeed.Output - rotation_control_output;
+    pwm_right = -pidBalance.Output - pidSpeed.Output + rotation_control_output;
+#endif
+#ifdef TUMBLLERSPEED
+    pwm_left = -pidBalance.Output + speed_control_output + rotation_control_output;
+    pwm_right = -pidBalance.Output + speed_control_output - rotation_control_output;
+#endif
+    pwm_left = constrain(pwm_left, -255, 255);
+    pwm_right = constrain(pwm_right, -255, 255);
 
     motorLeft.drive(pwm_left / 255.0);
     motorRight.drive(pwm_right / 255.0);
@@ -443,7 +487,7 @@ void UpdateMotors()
 
 //
 // Compute the angle of the robot and transition to any necessary new state (stood up, parked, or fallen).
-// Update pidAngle and if we are driving and no state changes were detected, update the motors to keep us driving and balancing.
+// Update pidBalance and if we are driving and no state changes were detected, update the motors to keep us driving and balancing.
 //
 void BalanceDriveController_Loop()
 {
@@ -461,7 +505,7 @@ void BalanceDriveController_Loop()
     VectorFloat gravity;             // [x, y, z]            gravity vector
     static float ypr[3] = {0, 0, 0}; // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-    // If we have new motion processor data, update pidAngle.Input
+    // If we have new motion processor data, update pidBalance.Input
     fifoCount = mpu.getFIFOCount();
     if (mpuInterrupt || fifoCount >= packetSize)
     {
@@ -487,7 +531,7 @@ void BalanceDriveController_Loop()
             mpu.dmpGetYawPitchRoll(ypr, &q, &gravity); // get value for ypr
 
             // given the orientation of the MPU6050, the 'roll' is actually the 'pitch' value we need
-            pidAngle.Input = ypr[2] * 180 / M_PI;      // convert output to degrees
+            pidBalance.Input = ypr[2] * 180 / M_PI; // convert output to degrees
         }
     }
 #endif // MPU6050
@@ -508,8 +552,9 @@ void BalanceDriveController_Loop()
 #endif // KALMANFILTER
 
     // calculate the correction needed to balance
-    pidAngle.Compute();
+    pidBalance.Compute();
 
+    // Check for and handle automatic state transitions (ie we fell over, stood up, etc)
     switch (drive_mode)
     {
     case MODE_PARKED:
@@ -518,7 +563,7 @@ void BalanceDriveController_Loop()
     case MODE_STANDING_UP:
         // Detect if robot is balanced enough that we can transition to driving.
         // Ensure we are beyond BALANCE_ANGLE_MAX enough that we don't transition to DRIVE then detect a fall.
-        if (abs(pidAngle.Input) < BALANCE_ANGLE_MAX / 2)
+        if (abs(pidBalance.Input) < BALANCE_ANGLE_MAX / 2)
         {
             BalanceDriveController_SetMode(MODE_DRIVE);
             break;
@@ -533,14 +578,14 @@ void BalanceDriveController_Loop()
 
     case MODE_DRIVE:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (pidAngle.Input > BALANCE_ANGLE_MAX)
+        if (pidBalance.Input > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
         }
 
         // If we exceed BALANCE_ANGLE_MAX in the negative direction, we have FALLEN
-        if (pidAngle.Input < -BALANCE_ANGLE_MAX)
+        if (pidBalance.Input < -BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_FALLEN);
             break;
@@ -551,7 +596,7 @@ void BalanceDriveController_Loop()
 
     case MODE_PARKING:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (pidAngle.Input > BALANCE_ANGLE_MAX)
+        if (pidBalance.Input > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
@@ -566,7 +611,7 @@ void BalanceDriveController_Loop()
 
     case MODE_FALLEN:
         // If we exeed BALANCE_ANGLE_MAX in the positive direction, we will land on the leg and transition to MODE_PARKED
-        if (pidAngle.Input > BALANCE_ANGLE_MAX)
+        if (pidBalance.Input > BALANCE_ANGLE_MAX)
         {
             BalanceDriveController_SetMode(MODE_PARKED);
             break;
@@ -576,6 +621,7 @@ void BalanceDriveController_Loop()
     case MODE_CALIBRATION:
         break;
     }
+
 #ifdef WEB_SERVER
     static uint8_t k = 0;
     if (k == plot.prescaler)
@@ -586,11 +632,13 @@ void BalanceDriveController_Loop()
         {
             float plotData[15] = {0};
 
-            plotData[0] = pidAngle.Input;
-            plotData[1] = pidAngle.Output;
+            plotData[0] = speed;
+            plotData[1] = steer;
+            plotData[2] = pidBalance.Input;
+            plotData[3] = pidBalance.Output;
 #ifdef KALMANFILTER
-            plotData[2] = kalmanfilter.angle;
-            plotData[3] = kalmanfilter.Gyro_x;
+            plotData[0] = kalmanfilter.angle;
+            plotData[1] = kalmanfilter.Gyro_x;
 #endif // KALMANFILTER
             plotData[4] = ypr[0] * 180 / M_PI;
             plotData[5] = ypr[2] * 180 / M_PI; // pitch and roll are reversed due to how the MPU6050
@@ -666,6 +714,7 @@ void BalanceDriveController_Loop()
     lastTime = currentTime;
 }
 
+// Handle externally requested state transitions and ensure only valid combinations are made.
 void BalanceDriveController_SetMode(DriveMode newDriveMode)
 {
     if (newDriveMode == drive_mode)
@@ -679,7 +728,8 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
     {
     case MODE_PARKED: // robot is parked on its leg so it can later stand
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKED");
-        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidBalance.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidSpeed.SetMode(MANUAL);
         pwm_left = pwm_right = 0;
         motorLeft.brake();
         motorRight.brake();
@@ -691,7 +741,8 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
             return;
 
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_STANDING_UP");
-        pidAngle.SetMode(AUTOMATIC); // we need the PID running so we can transition smoothly to driving
+        pidBalance.SetMode(AUTOMATIC); // we need the PID running so we can transition smoothly to driving
+        pidSpeed.SetMode(AUTOMATIC);
 
         // go full speed forward so we can stand up
         pwm_left = pwm_right = 255;
@@ -706,7 +757,8 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
             return;
 
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_PARKING");
-        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidBalance.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidSpeed.SetMode(MANUAL);
 
         // backup so we rest on the foot then hit the brakes
         pwm_left -= 128;
@@ -718,22 +770,25 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
 
     case MODE_DRIVE: // robot is balancing and able to be driven
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_DRIVE");
-        pidAngle.SetMode(AUTOMATIC); // we only want the PID running when we're trying to balance
+        pidBalance.SetMode(AUTOMATIC); // we only want the PID running when we're trying to balance
+        pidSpeed.SetMode(AUTOMATIC);
         break;
 
     case MODE_FALLEN: // robot has fallen and can't get up
         DB_PRINTLN("BalanceDriveController_SetMode: transition to MODE_FALLEN");
-        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidBalance.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidSpeed.SetMode(MANUAL);
         pwm_left = pwm_right = 0;
         motorLeft.brake();
         motorRight.brake();
         break;
 
     case MODE_CALIBRATION: // calculate a new calibration and store it in the MPU6050
-        // tell the web page we're calibrating then turn off pidAngle and motors just to be sure we aren't moving
+        // tell the web page we're calibrating then turn off pidBalance and motors just to be sure we aren't moving
         drive_mode = newDriveMode;
         SendDriveMode();
-        pidAngle.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidBalance.SetMode(MANUAL); // we don't want the PID accumulating error when we aren't trying to balance
+        pidSpeed.SetMode(MANUAL);
         pwm_left = pwm_right = 0;
         motorLeft.brake();
         motorRight.brake();
@@ -754,6 +809,19 @@ void BalanceDriveController_SetMode(DriveMode newDriveMode)
 
 void BalanceDriveController_SetVelocity(float newSpeed, float newSteer)
 {
+    // requested 'speed' and 'steer' are -1.0 to 1.0
     speed = newSpeed;
     steer = newSteer;
+
+#ifdef ANGLESPEED
+    // convert requested speed to tilt
+    pidBalance.Setpoint = speed * SPEED_ANGLE_MAX;
+#endif // ANGLESPEED
+#ifdef PIDSPEED
+    // convert requested speed to pulses per sample time
+    pidSpeed.Setpoint = speed * MAX_ENCODER_COUNT_PER_MS * PID_SAMPLE_TIME;
+#endif // PIDSPEED
+#ifdef TUMBLLERSPEED
+    setting_car_speed = speed * 80;
+#endif // TUMBLLERSPEED
 }

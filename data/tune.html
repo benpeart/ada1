@@ -64,10 +64,10 @@
                     <input type="radio" id="sr" name="sampleRate" onclick=onSampleRate(this); value="1">200<br /><br />
 
                     Signals to plot<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Speed input<br />
+                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Steer input<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance input<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this); checked>PID balance output<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Kalman filter angle<br />
-                    <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Corrected gyro X<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Yaw<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Pitch<br />
                     <input type="checkbox" name="plotOption" onchange=PlotOption(this);>Roll<br />
@@ -170,28 +170,28 @@
         const data = {
             labels: [],
             datasets: [{
-                label: 'Balance PID input',
+                label: 'Speed input',
                 data: [],
                 tension: 0.4,
                 borderColor: 'rgba(0, 0, 128, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Balance PID output',
+                label: 'Steer input',
                 data: [],
                 tension: 0.4,
                 borderColor: 'rgba(0, 128, 0, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Kalman filter angle',
+                label: 'PID balance input',
                 data: [],
                 tension: 0.4,
                 borderColor: 'rgba(0, 128, 128, 1)',
                 fill: false,
                 hidden: false,
             }, {
-                label: 'Corrected Gyro X',
+                label: 'PID balance output',
                 data: [],
                 tension: 0.4,
                 borderColor: 'rgba(128, 0, 0, 1)',
