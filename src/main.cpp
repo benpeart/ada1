@@ -121,8 +121,10 @@ void setup()
 
 void loop()
 {
+  // Check if 2 seconds have passed since we updated the firmware or filesystem and if so, reboot
   ElegantOTA.loop();
 
+  // if not connected, reconnect (this is _very_ expensive!), else respond to controller input
 #ifdef XBOX_CONTROLLER
   xboxController.onLoop();
   if (xboxController.isConnected())
@@ -149,16 +151,18 @@ void loop()
       float car_speed_reverse = ((float)xboxController.xboxNotif.trigLT / XboxControllerNotificationParser::maxTrig);
 
       // subtract the requested reverse speed from the requested forward speed in case both triggers are requesting different values
-      // the steering is based off the left horizontal joystick
       float speed = car_speed_forward - car_speed_reverse;
-      float steer = (float)xboxController.xboxNotif.joyLHori / XboxControllerNotificationParser::maxJoy;
+
+      // the steering is based off the left horizontal joystick
+	  // convert the range from 0 <-> maxJoy to -1.0 <-> 1.0
+      float steer = (float)(xboxController.xboxNotif.joyLHori - (XboxControllerNotificationParser::maxJoy / 2)) / (XboxControllerNotificationParser::maxJoy / 2);
       BalanceDriveController_SetVelocity(speed, steer);
 
       // The "A" button will tell us to stand up and start to balance
       if (xboxController.xboxNotif.btnA)
         BalanceDriveController_SetMode(MODE_STANDING_UP);
 
-      // The 'B' button will tell us to tip over onto the leg and stop balancing
+      // The 'B' button will tell us to tip over onto the leg and park
       if (xboxController.xboxNotif.btnB)
         BalanceDriveController_SetMode(MODE_PARKING);
 
